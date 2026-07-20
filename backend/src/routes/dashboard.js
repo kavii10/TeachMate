@@ -37,7 +37,7 @@ router.get('/dashboard', async (req, res, next) => {
   try {
     const schoolId = req.auth.profile.school_id;
     const [classes, pendingSubmissions, drafts] = await Promise.all([
-      req.auth.supabase.from('classes').select('id, name, grade, subject').eq('school_id', schoolId).eq('teacher_id', req.auth.user.id).order('name'),
+      req.auth.supabase.from('classes').select('id, name, grade, subject, join_code, created_at').eq('school_id', schoolId).eq('teacher_id', req.auth.user.id).order('created_at'),
       req.auth.supabase.from('submissions').select('id, assessment:assessments!inner(teacher_id)', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'submitted').eq('assessment.teacher_id', req.auth.user.id),
       req.auth.supabase.from('voice_feedback_drafts').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('teacher_id', req.auth.user.id).eq('status', 'draft')
     ]);

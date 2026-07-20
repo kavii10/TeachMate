@@ -11,25 +11,148 @@ import { createWorkspace, normalizeRole, roleLabels, roleNavigation } from './da
 import './quiz.css';
 import { addStudentToDemoClass, clearActiveAccount, clearPendingProfile, createDemoClassId, findDemoClass, loadAccount, loadActiveAccount, loadTheme, normalizeClassId, registerDemoClass, saveAccount, saveActiveAccount, savePendingProfile, saveTheme } from './lib/storage.js';
 import { apiRequest, checkApiHealth, getAiStatus } from './lib/api.js';
-import { bootstrapSchoolAccount, getSchoolSession, startSchoolWorkspaceSession, signOutSchoolSession, getSupabaseClient } from './lib/supabase-auth.js';
+import { bootstrapSchoolAccount, getSchoolSession, rememberSchoolWorkspaceSession, startSchoolWorkspaceSession, signOutSchoolSession, getSupabaseClient } from './lib/supabase-auth.js';
 import { loadSchoolAnnouncements } from './lib/school-announcements.js';
 import RolePortal from './components/RolePortal.jsx';
 import AdminPortal from './components/AdminPortal.jsx';
 import AskAiPanel from './components/AskAiPanel.jsx';
+import QuizAiAnalysisView from './components/QuizAiAnalysis.jsx';
 import logoLight from './assets/teachmate-logo-light.jpeg';
 import logoDark from './assets/teachmate-logo-dark.jpeg';
 
 const icons = { dashboard: LayoutDashboard, classes: GraduationCap, students: Users, teachers: GraduationCap, schools: GraduationCap, homework: ClipboardCheck, assignments: ClipboardCheck, attendance: CalendarCheck, tests: FileText, assessments: FileText, quiz: PenTool, overview: BarChart3, feedback: Mic, grading: PenTool, voiceFeedback: Mic, messages: MessageSquare, announcements: Bell, resources: Library, insights: BarChart3, analytics: BarChart3, settings: Settings, timetable: CalendarCheck, calendar: CalendarCheck, profile: UserRound, subjects: BookOpen, marks: CheckCircle2, progress: TrendingUp, reports: FileText, users: Users, notifications: Bell };
 const initials = name => name?.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase() || 'TM';
+const recordList = value => Array.isArray(value) ? value.filter(item => item && typeof item === 'object') : [];
+
+function mapAdminSchoolDirectory(payload) {
+  const classRows = recordList(payload?.classes);
+  const classById = new Map(classRows.map(classRecord => [classRecord.id, classRecord]));
+  const memberRows = recordList(payload?.members);
+  const enrollmentsByStudent = new Map();
+
+  recordList(payload?.enrollments).forEach(enrollment => {
+    if (!enrollment.studentId || !classById.has(enrollment.classId)) return;
+    const studentEnrollments = enrollmentsByStudent.get(enrollment.studentId) || [];
+    studentEnrollments.push(enrollment.classId);
+    enrollmentsByStudent.set(enrollment.studentId, studentEnrollments);
+  });
+
+  const students = memberRows
+    .filter(member => member.role === 'student')
+    .map(member => {
+      const classIds = [...new Set(enrollmentsByStudent.get(member.id) || [])];
+      const primaryClass = classById.get(classIds[0]);
+      const name = member.name || 'Student';
+      return {
+        id: member.id,
+        name,
+        initials: initials(name),
+        classId: classIds[0] || '',
+        classIds,
+        className: primaryClass?.name || 'Not enrolled in a class yet',
+        attendance: 0,
+        score: 0,
+        avgMarks: 0,
+        status: classIds.length ? 'Enrolled' : 'Awaiting class enrollment'
+      };
+    });
+
+  const classes = classRows.map(classRecord => ({
+    id: classRecord.id,
+    name: classRecord.name || 'Untitled class',
+    subject: classRecord.subject || 'General',
+    grade: classRecord.grade || 'Classroom',
+    joinCode: classRecord.join_code || '',
+    teacherId: classRecord.teacher_id,
+    students: students.filter(student => student.classIds.includes(classRecord.id)).length,
+    studentsList: students.filter(student => student.classIds.includes(classRecord.id)),
+    progress: 0,
+    color: 'indigo'
+  }));
+
+  const teachers = memberRows
+    .filter(member => member.role === 'teacher')
+    .map(member => {
+      const classIds = classes.filter(classRecord => classRecord.teacherId === member.id).map(classRecord => classRecord.id);
+      const name = member.name || 'Teacher';
+      const subjects = [...new Set(classes.filter(classRecord => classRecord.teacherId === member.id).map(classRecord => classRecord.subject))];
+      return {
+        id: member.id,
+        name,
+        initials: initials(name),
+        subject: subjects.join(', ') || 'No class assigned',
+        classIds
+      };
+    });
+
+  const notifications = recordList(payload?.announcements).map(announcement => ({
+    id: announcement.id,
+    title: announcement.title || 'School announcement',
+    body: announcement.body || '',
+    audience: announcement.audience || 'all',
+    active: true,
+    createdAt: announcement.created_at
+  }));
+  const school = payload?.school && typeof payload.school === 'object' ? payload.school : {};
+  const subjects = [...new Set(classes.map(classRecord => classRecord.subject).filter(Boolean))];
+
+  return {
+    schoolName: school.name || '',
+    classes,
+    students,
+    announcements: notifications,
+    adminData: {
+      school: {
+        name: school.name || 'TeachMate Academy',
+        academicYear: school.academicYear || 'Current academic year',
+        city: '',
+        contact: ''
+      },
+      teachers,
+      students,
+      subjects: subjects.length ? subjects : ['Biology', 'Physics', 'Chemistry', 'Mathematics', 'English'],
+      timetable: [],
+      notifications
+    }
+  };
+}
 
 function reserveTeacherClasses(profile, sourceClasses, primaryClassId) {
-  const seed = sourceClasses?.length ? sourceClasses : createWorkspace({ ...profile, classId: primaryClassId }).classes;
-  return seed.map((item, index) => {
-    let joinCode = normalizeClassId(index === 0 && primaryClassId ? primaryClassId : item.joinCode);
+  const seed = sourceClasses?.length
+    ? sourceClasses
+    : (profile.classes?.length ? profile.classes : createWorkspace({ ...profile, classId: primaryClassId }).classes);
+
+  const seen = new Set();
+  const uniqueClasses = [];
+
+  for (let index = 0; index < seed.length; index++) {
+    const item = seed[index];
+    if (!item) continue;
+    const normName = (item.name || '').replace(/[\s·]+/g, ' ').trim().toLowerCase();
+    const normSub = (item.subject || '').trim().toLowerCase();
+    const key = item.id && !item.id.startsWith('demo-') ? item.id : `${normName}_${normSub}`;
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    let joinCode = normalizeClassId(item.joinCode || (index === 0 && primaryClassId ? primaryClassId : null));
     const owner = joinCode && findDemoClass(joinCode);
-    if (!joinCode || /^TM-DEMO/.test(joinCode) || (owner?.teacherEmail && owner.teacherEmail !== profile.email)) joinCode = createDemoClassId();
-    return registerDemoClass({ ...item, id: item.id || `demo-${joinCode}`, joinCode, teacherEmail: profile.email, schoolName: profile.schoolName });
-  });
+    if (!joinCode || (owner?.teacherEmail && owner.teacherEmail !== profile.email)) {
+      joinCode = item.joinCode || createDemoClassId();
+    }
+
+    const classRecord = registerDemoClass({
+      ...item,
+      id: item.id || `demo-${joinCode}`,
+      joinCode,
+      teacherEmail: profile.email,
+      schoolName: profile.schoolName
+    });
+
+    uniqueClasses.push(classRecord);
+  }
+
+  return uniqueClasses;
 }
 const landingPageFor = () => 'dashboard';
 
@@ -287,7 +410,280 @@ function PageMotion({ children }) { return <motion.div className="page" initial=
 
 function ClassesPage({ workspace, updateWorkspace, authToken, onToast, onOpenClass }) {
   const [createOpen, setCreateOpen] = useState(false);
-  return <><PageShell eyebrow="CLASSROOMS" title="My classes" copy="Choose a class to see its roster, assessments, feedback, and learning progress." action="New class" onAction={() => setCreateOpen(true)}><div className="class-grid">{workspace.classes.map(item => <article className="class-card class-card-openable" key={item.id}><div className={`class-hero ${item.color}`}><span><BookOpen size={23} /></span><button aria-label={`More options for ${item.name}`}><MoreHorizontal size={18} /></button></div><div className="class-card-body"><p>{item.subject}</p><h3>{item.name}</h3><span>{item.students} learners</span>{item.joinCode && <span className="class-id-chip">Class ID: {item.joinCode}</span>}<div className="progress-label"><span>Mastery progress</span><b>{item.progress}%</b></div><div className="progress"><i style={{ width: `${item.progress}%` }} /></div><div className="class-card-actions"><Button variant="subtle" onClick={() => onOpenClass(item.id)}>Open class <ArrowUpRight size={15} /></Button><Button variant="ghost" onClick={() => { if (item.joinCode) void navigator.clipboard?.writeText(item.joinCode); onToast(item.joinCode ? `Class ID copied: ${item.joinCode}` : 'Class ID unavailable.'); }}>Copy ID</Button></div></div></article>)}</div></PageShell><AnimatePresence>{createOpen && <NewClassModal workspace={workspace} updateWorkspace={updateWorkspace} authToken={authToken} onClose={() => setCreateOpen(false)} onToast={onToast} />}</AnimatePresence></>;
+  const [activeMenuId, setActiveMenuId] = useState(null);
+  const [editingClass, setEditingClass] = useState(null);
+  const [deletingClass, setDeletingClass] = useState(null);
+
+  useEffect(() => {
+    function handleClickOutside() {
+      setActiveMenuId(null);
+    }
+    if (activeMenuId) {
+      window.addEventListener('click', handleClickOutside);
+      return () => window.removeEventListener('click', handleClickOutside);
+    }
+  }, [activeMenuId]);
+
+  return (
+    <>
+      <PageShell eyebrow="CLASSROOMS" title="My classes" copy="Choose a class to see its roster, assessments, feedback, and learning progress." action="New class" onAction={() => setCreateOpen(true)}>
+        <div className="class-grid">
+          {workspace.classes.map(item => (
+            <article className="class-card class-card-openable" key={item.id}>
+              <div className={`class-hero ${item.color || 'indigo'}`}>
+                <span><BookOpen size={23} /></span>
+                <div className="class-hero-actions">
+                  <button
+                    type="button"
+                    aria-label={`More options for ${item.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveMenuId(activeMenuId === item.id ? null : item.id);
+                    }}
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                  {activeMenuId === item.id && (
+                    <div className="class-card-dropdown" onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveMenuId(null);
+                          setEditingClass(item);
+                        }}
+                      >
+                        <Edit3 size={13} /> Edit Class
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => {
+                          setActiveMenuId(null);
+                          setDeletingClass(item);
+                        }}
+                      >
+                        <Trash2 size={13} /> Delete Class
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="class-card-body">
+                <p>{item.subject}</p>
+                <h3>{item.name}</h3>
+                <span>{item.students} learners</span>
+                {item.joinCode && <span className="class-id-chip">Class ID: {item.joinCode}</span>}
+                <div className="progress-label">
+                  <span>Mastery progress</span>
+                  <b>{item.progress || 0}%</b>
+                </div>
+                <div className="progress">
+                  <i style={{ width: `${item.progress || 0}%` }} />
+                </div>
+                <div className="class-card-actions">
+                  <Button variant="subtle" onClick={() => onOpenClass(item.id)}>
+                    Open class <ArrowUpRight size={15} />
+                  </Button>
+                  <Button variant="ghost" onClick={() => { if (item.joinCode) void navigator.clipboard?.writeText(item.joinCode); onToast(item.joinCode ? `Class ID copied: ${item.joinCode}` : 'Class ID unavailable.'); }}>
+                    Copy ID
+                  </Button>
+                </div>
+              </div>
+            </article>
+          ))}
+          {workspace.classes.length === 0 && (
+            <p className="workspace-empty" style={{ padding: '30px', gridColumn: '1 / -1', textAlign: 'center' }}>
+              No classes created yet. Click "New class" to create one.
+            </p>
+          )}
+        </div>
+      </PageShell>
+
+      <AnimatePresence>
+        {createOpen && (
+          <NewClassModal
+            workspace={workspace}
+            updateWorkspace={updateWorkspace}
+            authToken={authToken}
+            onClose={() => setCreateOpen(false)}
+            onToast={onToast}
+          />
+        )}
+        {editingClass && (
+          <EditClassModal
+            classToEdit={editingClass}
+            workspace={workspace}
+            updateWorkspace={updateWorkspace}
+            authToken={authToken}
+            onClose={() => setEditingClass(null)}
+            onToast={onToast}
+          />
+        )}
+        {deletingClass && (
+          <ConfirmDeleteClassModal
+            classToDelete={deletingClass}
+            workspace={workspace}
+            updateWorkspace={updateWorkspace}
+            authToken={authToken}
+            onClose={() => setDeletingClass(null)}
+            onToast={onToast}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+function EditClassModal({ classToEdit, workspace, updateWorkspace, authToken, onClose, onToast }) {
+  const [form, setForm] = useState({
+    name: classToEdit.name || '',
+    grade: classToEdit.grade || '',
+    subject: classToEdit.subject || '',
+    color: classToEdit.color || 'indigo'
+  });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const update = event => setForm(current => ({ ...current, [event.target.name]: event.target.value }));
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!form.name.trim() || !form.grade.trim() || !form.subject.trim()) {
+      return setError('Add a class name, grade, and subject.');
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const updatedRecord = {
+        ...classToEdit,
+        name: form.name.trim(),
+        grade: form.grade.trim(),
+        subject: form.subject.trim(),
+        color: form.color
+      };
+
+      if (authToken && classToEdit.id && !classToEdit.id.startsWith('demo-')) {
+        await apiRequest(`/teacher/classes/${classToEdit.id}`, {
+          token: authToken,
+          method: 'PUT',
+          body: JSON.stringify({
+            name: updatedRecord.name,
+            grade: updatedRecord.grade,
+            subject: updatedRecord.subject
+          })
+        }).catch(() => {});
+      }
+
+      registerDemoClass({
+        ...updatedRecord,
+        teacherEmail: workspace.profile.email,
+        schoolName: workspace.profile.schoolName
+      });
+
+      updateWorkspace(current => ({
+        ...current,
+        classes: current.classes.map(c => c.id === classToEdit.id ? updatedRecord : c)
+      }));
+
+      onToast(`Class "${updatedRecord.name}" updated successfully.`);
+      onClose();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={onClose}>
+      <motion.section className="quick-modal new-class-modal" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12 }} onMouseDown={event => event.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow">EDIT CLASSROOM</p>
+            <h2>Edit {classToEdit.name}</h2>
+          </div>
+          <IconButton label="Close" onClick={onClose}><X size={19} /></IconButton>
+        </div>
+        <form className="new-class-form" onSubmit={submit}>
+          <Field label="Class name">
+            <input name="name" value={form.name} onChange={update} placeholder="Grade 10 - Science" autoFocus />
+          </Field>
+          <div className="form-grid">
+            <Field label="Grade">
+              <input name="grade" value={form.grade} onChange={update} placeholder="Grade 10" />
+            </Field>
+            <Field label="Subject">
+              <input name="subject" value={form.subject} onChange={update} placeholder="Biology" />
+            </Field>
+          </div>
+          <Field label="Theme Color">
+            <select className="form-select" name="color" value={form.color} onChange={update} style={{ width: '100%', height: '43px', border: '1px solid var(--line)', borderRadius: '10px', padding: '0 12px', background: 'var(--input)', color: 'var(--text)', fontSize: '13px' }}>
+              <option value="indigo">Indigo</option>
+              <option value="violet">Violet</option>
+              <option value="blue">Blue</option>
+              <option value="emerald">Emerald</option>
+              <option value="amber">Amber</option>
+              <option value="rose">Rose</option>
+            </select>
+          </Field>
+          {error && <p className="form-error">{error}</p>}
+          <div className="modal-actions">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" icon={Check} disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</Button>
+          </div>
+        </form>
+      </motion.section>
+    </motion.div>
+  );
+}
+
+function ConfirmDeleteClassModal({ classToDelete, workspace, updateWorkspace, authToken, onClose, onToast }) {
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      if (authToken && classToDelete.id && !classToDelete.id.startsWith('demo-')) {
+        await apiRequest(`/teacher/classes/${classToDelete.id}`, {
+          token: authToken,
+          method: 'DELETE'
+        }).catch(() => {});
+      }
+
+      updateWorkspace(current => ({
+        ...current,
+        classes: current.classes.filter(c => c.id !== classToDelete.id)
+      }));
+
+      onToast(`Class "${classToDelete.name}" deleted.`);
+      onClose();
+    } catch (err) {
+      onToast(`Error deleting class: ${err.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={onClose}>
+      <motion.section className="quick-modal" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} onMouseDown={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow" style={{ color: '#ef4444' }}>DELETE CLASSROOM</p>
+            <h2>Delete "{classToDelete.name}"?</h2>
+          </div>
+          <IconButton label="Close" onClick={onClose}><X size={19} /></IconButton>
+        </div>
+        <p className="muted" style={{ marginBottom: '20px', lineHeight: '1.5' }}>
+          Are you sure you want to delete this class workspace? All associated assignments and rosters will be removed.
+        </p>
+        <div className="modal-actions">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={deleting}>Cancel</Button>
+          <Button type="button" variant="danger" icon={Trash2} onClick={handleDelete} disabled={deleting}>{deleting ? 'Deleting...' : 'Delete Class'}</Button>
+        </div>
+      </motion.section>
+    </motion.div>
+  );
 }
 
 // ==========================================
@@ -331,7 +727,7 @@ function ClassHomeworkModal({ classRecord, updateWorkspace, onClose, onToast, ho
       const updated = homeworkToEdit
         ? existing.map(h => h.id === hwData.id ? hwData : h)
         : [hwData, ...existing];
-      
+
       const registryRecord = findDemoClass(classRecord.joinCode || classRecord.id) || classRecord;
       registerDemoClass({
         ...registryRecord,
@@ -1279,6 +1675,28 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
                           onBlur={e => e.target.style.borderBottomColor = 'transparent'}
                         />
                       </div>
+
+                      {/* Learning Topic */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '22px', marginTop: '4px' }}>
+                        <span style={{ fontSize: '10px', color: '#6366f1', fontWeight: '700' }}>Learning Topic:</span>
+                        <input
+                          value={q.learningTopic || q.topic || ''}
+                          onChange={e => updateQuestion(q.id, 'learningTopic', e.target.value)}
+                          placeholder={form.topic || "e.g. Photosynthesis, Cell Structure..."}
+                          style={{
+                            border: 'none',
+                            borderBottom: '1px dashed #a5b4fc',
+                            background: 'transparent',
+                            fontSize: '11px',
+                            width: '260px',
+                            outline: 'none',
+                            color: 'var(--text)',
+                            fontWeight: '600'
+                          }}
+                          onFocus={e => e.target.style.borderBottom = '1px solid #6366f1'}
+                          onBlur={e => e.target.style.borderBottom = '1px dashed #a5b4fc'}
+                        />
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -1451,14 +1869,6 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
 
   // Voice Feedback states
   const [feedbackTarget, setFeedbackTarget] = useState(null);
-
-  useEffect(() => {
-    let anim;
-    if (recording) {
-      anim = setInterval(() => setRecordingAnim(v => (v + 1) % 4), 300);
-    }
-    return () => clearInterval(anim);
-  }, [recording]);
 
   if (!classRecord) return null;
 
@@ -2258,80 +2668,14 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
   // ==========================================
   else if (tab === 'quiz') {
     if (viewingQuizStats) {
-      const quiz = viewingQuizStats;
-      const subs = quiz.submissions || [];
-
       return (
-        <PageMotion>
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">
-                <button style={{ border: '0', background: 'transparent', color: '#4f46e5', fontWeight: '800', cursor: 'pointer' }} onClick={() => setViewingQuizStats(null)}>
-                  &larr; Back to quiz list
-                </button>
-              </p>
-              <h1>Quiz Report: {quiz.title}</h1>
-              <p>{quiz.topic} &middot; {quiz.questions?.length} Questions &middot; Time Limit: {quiz.timeLimit} mins</p>
-            </div>
-          </div>
-
-          <section className="quiz-summary-grid" style={{ marginBottom: '20px' }}>
-            <article><span>Average Score</span><b>{quiz.averageScore || 0}%</b><small>Class performance</small></article>
-            <article><span>Highest Score</span><b>{quiz.highestScore || 0}%</b><small>Top score</small></article>
-            <article><span>Lowest Score</span><b>{quiz.lowestScore || 0}%</b><small>Minimum score</small></article>
-            <article><span>Strongest Topic</span><b>{quiz.strongestTopic || 'N/A'}</b><small>Highest accuracy</small></article>
-            <article><span>Weakest Topic</span><b>{quiz.weakestTopic || 'N/A'}</b><small>Focus revision</small></article>
-          </section>
-
-          <Card className="quiz-summary-note" style={{ marginBottom: '18px' }}>
-            <CardHeader eyebrow="AI SUMMARY ANALYSIS" title="Concept diagnostics" />
-            <p style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', padding: '15px', borderRadius: '12px', color: '#5b21b6', fontSize: '12px', lineHeight: '1.6' }}>
-              <Sparkles size={16} style={{ display: 'inline', marginRight: '6px', color: '#8b5cf6' }} />
-              {quiz.aiSummary || 'Insufficient data. The AI will generate a performance summary after students submit their answers.'}
-            </p>
-          </Card>
-
-          <Card>
-            <CardHeader eyebrow="STUDENT GRADES" title="Practice scores" />
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>Date Taken</th>
-                    <th>Score</th>
-                    <th>Strong Topics</th>
-                    <th>Weak Topics</th>
-                    <th>Mistakes Summary</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subs.map(sub => (
-                    <tr key={sub.studentId}>
-                      <td><b>{sub.studentName}</b></td>
-                      <td>{new Date(sub.submittedAt).toLocaleDateString()}</td>
-                      <td><b>{sub.score}%</b> ({sub.correct}/{sub.total})</td>
-                      <td>{sub.analysis?.strongTopics?.join(', ') || 'N/A'}</td>
-                      <td>
-                        <span style={{ color: sub.analysis?.weakTopics?.length ? '#ef4444' : 'inherit' }}>
-                          {sub.analysis?.weakTopics?.join(', ') || 'None'}
-                        </span>
-                      </td>
-                      <td>{sub.analysis?.mistakes?.join('; ') || 'None'}</td>
-                    </tr>
-                  ))}
-                  {subs.length === 0 && (
-                    <tr>
-                      <td colSpan="6">
-                        <p className="workspace-empty">No student attempts recorded yet.</p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </PageMotion>
+        <QuizAiAnalysisView
+          quiz={viewingQuizStats}
+          roster={roster}
+          onBack={() => setViewingQuizStats(null)}
+          onToast={onToast}
+          updateWorkspace={updateWorkspace}
+        />
       );
     }
 
@@ -2385,9 +2729,9 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '6px' }}>
-                        {quiz.submissions && quiz.submissions.length > 0 && (
-                          <Button variant="subtle" onClick={() => setViewingQuizStats(quiz)}>Quiz Report</Button>
-                        )}
+                        <Button variant="subtle" icon={Sparkles} onClick={() => setViewingQuizStats(quiz)}>
+                          AI Analysis
+                        </Button>
                         {quiz.status === 'Draft' && (
                           <Button
                             variant="primary"
@@ -3150,19 +3494,22 @@ export class ErrorBoundary extends React.Component {
 }
 
 function sanitizeWorkspace(ws) {
-  if (!ws) return null;
+  if (!ws || typeof ws !== 'object') return null;
+  const records = value => Array.isArray(value) ? value.filter(item => item && typeof item === 'object') : [];
+  const profile = ws.profile && typeof ws.profile === 'object' ? ws.profile : {};
   return {
     ...ws,
-    profile: ws.profile || { fullName: 'User', email: 'user@school.edu', role: 'Teacher' },
-    classes: Array.isArray(ws.classes) ? ws.classes : [],
-    students: Array.isArray(ws.students) ? ws.students : [],
-    homework: Array.isArray(ws.homework) ? ws.homework : [],
-    quizzes: Array.isArray(ws.quizzes) ? ws.quizzes : [],
-    tests: Array.isArray(ws.tests) ? ws.tests : [],
-    resources: Array.isArray(ws.resources) ? ws.resources : [],
-    feedback: Array.isArray(ws.feedback) ? ws.feedback : [],
-    announcements: Array.isArray(ws.announcements) ? ws.announcements : [],
-    settings: ws.settings || { weeklyDigest: true, instantNotifications: true }
+    profile: { fullName: 'User', email: 'user@school.edu', role: 'Teacher', ...profile },
+    classes: records(ws.classes),
+    students: records(ws.students),
+    homework: records(ws.homework),
+    quizzes: records(ws.quizzes),
+    tests: records(ws.tests),
+    resources: records(ws.resources),
+    feedback: records(ws.feedback),
+    announcements: records(ws.announcements),
+    timetable: records(ws.timetable),
+    settings: ws.settings && typeof ws.settings === 'object' ? ws.settings : { weeklyDigest: true, instantNotifications: true }
   };
 }
 
@@ -3174,7 +3521,7 @@ function App() {
   const [page, setPage] = useState(() => landingPageFor(loadActiveAccount()?.profile)); const [activeClassId, setActiveClassId] = useState(null); const [activeClassTab, setActiveClassTab] = useState('overview'); const [activeSubjectId, setActiveSubjectId] = useState(null); const [activeSubjectTab, setActiveSubjectTab] = useState('progress'); const [toast, setToast] = useState(''); const [quickOpen, setQuickOpen] = useState(false); const [askAiOpen, setAskAiOpen] = useState(false); const [mobileOpen, setMobileOpen] = useState(false); const [notifications, setNotifications] = useState(false); const [aiStatus, setAiStatus] = useState({ configured: false, providers: [] }); const [secureSession, setSecureSession] = useState(null); const [secureError, setSecureError] = useState('');
   const activeRole = normalizeRole(secureSession?.account?.user?.role || workspace?.profile?.role);
   
-  useEffect(() => { const timer = setTimeout(() => setBooting(false), 500); return () => clearTimeout(timer); }, []);
+  useEffect(() => { const timer = setTimeout(() => setBooting(false), 3000); return () => clearTimeout(timer); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; saveTheme(theme); }, [theme]);
   useEffect(() => { getAiStatus().then(setAiStatus).catch(() => setAiStatus({ configured: false, providers: [] })); }, []);
   useEffect(() => {
@@ -3205,22 +3552,73 @@ function App() {
     
     async function loadFromSupabase() {
       try {
-        const supabase = await getSupabaseClient();
         const role = normalizeRole(workspace.profile.role);
         const schoolId = secureSession.account?.user?.school_id;
         const userId = secureSession.account?.user?.id;
         
         if (!schoolId || !userId) return;
-        
-        const { data: dbClasses } = await supabase
-          .from('classes')
-          .select('*')
-          .eq('school_id', schoolId);
-          
-        if (!active || !dbClasses) return;
-        
+
+        // The admin API applies the verified school membership server-side and
+        // returns only this school’s people, classes, enrollments, and notices.
+        // This also supports a new school before its first class exists.
+        if (role === 'admin') {
+          const directory = await apiRequest('/admin/dashboard', { token: secureSession.accessToken });
+          if (!active) return;
+          const adminSchoolData = mapAdminSchoolDirectory(directory);
+          setWorkspace(current => ({
+            ...current,
+            ...adminSchoolData,
+            profile: { ...current.profile, ...(adminSchoolData.schoolName ? { schoolName: adminSchoolData.schoolName } : {}) },
+            __supabaseLoaded: true
+          }));
+          return;
+        }
+
+        const supabase = await getSupabaseClient();
+        let dbClasses = [];
+
+        if (role === 'teacher') {
+          // A teacher must only hydrate classes assigned to the current
+          // authenticated identity. Loading every school class made classes
+          // from old or other teacher identities look like duplicates.
+          const { data, error } = await supabase
+            .from('classes')
+            .select('*')
+            .eq('school_id', schoolId)
+            .eq('teacher_id', userId);
+          if (error) throw error;
+          dbClasses = data || [];
+        } else {
+          // Students hydrate only the classes in which they are enrolled.
+          const { data: enrollments, error: enrollmentError } = await supabase
+            .from('enrollments')
+            .select('class_id')
+            .eq('student_id', userId);
+          if (enrollmentError) throw enrollmentError;
+          const enrolledClassIds = (enrollments || []).map(row => row.class_id).filter(Boolean);
+          if (enrolledClassIds.length) {
+            const { data, error } = await supabase
+              .from('classes')
+              .select('*')
+              .eq('school_id', schoolId)
+              .in('id', enrolledClassIds);
+            if (error) throw error;
+            dbClasses = data || [];
+          }
+        }
+
+        if (!active) return;
+
         const classIds = dbClasses.map(c => c.id);
-        if (classIds.length === 0) return;
+        if (classIds.length === 0) {
+          setWorkspace(current => ({
+            ...current,
+            __supabaseLoaded: true,
+            classes: [],
+            students: role === 'teacher' ? [] : current.students
+          }));
+          return;
+        }
         
         const [dbHomework, dbAssessments, dbResources, dbMessages, dbFeedback, dbAttendanceSessions, dbEnrollments] = await Promise.all([
           supabase.from('homework_assignments').select('*').in('class_id', classIds),
@@ -3394,7 +3792,7 @@ function App() {
         setWorkspace(current => ({
           ...current,
           __supabaseLoaded: true,
-          classes: classes.length ? classes : current.classes,
+          classes,
           students: role === 'teacher' ? roster : current.students,
           homework: mappedHomework.length ? mappedHomework : current.homework,
           tests: mappedTests.length ? mappedTests : current.tests,
@@ -3412,6 +3810,34 @@ function App() {
     loadFromSupabase();
     return () => { active = false; };
   }, [secureSession, workspace?.profile?.email]);
+
+  // Keep an administrator's directory current while teachers add classes and
+  // students join them from other signed-in browsers.
+  useEffect(() => {
+    if (!secureSession?.accessToken || activeRole !== 'admin' || !workspace?.__supabaseLoaded) return;
+    let cancelled = false;
+
+    async function refreshAdminDirectory() {
+      try {
+        const directory = await apiRequest('/admin/dashboard', { token: secureSession.accessToken });
+        if (cancelled) return;
+        const adminSchoolData = mapAdminSchoolDirectory(directory);
+        setWorkspace(current => ({
+          ...current,
+          ...adminSchoolData,
+          profile: { ...current.profile, ...(adminSchoolData.schoolName ? { schoolName: adminSchoolData.schoolName } : {}) }
+        }));
+      } catch (error) {
+        console.warn('Administrator directory refresh failed:', error.message);
+      }
+    }
+
+    // Run once immediately so a currently-open admin session is corrected
+    // after a hot reload or a previous cached empty snapshot, then keep it live.
+    refreshAdminDirectory();
+    const interval = window.setInterval(refreshAdminDirectory, 12000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [secureSession?.accessToken, activeRole, workspace?.__supabaseLoaded]);
 
   // Sync workspace state to storage and demo registry on every change
   useEffect(() => {
@@ -3751,12 +4177,14 @@ function App() {
     const requestedRole = normalizeRole(profile.role);
     const bootstrapRole = requestedRole === 'admin' ? 'school_admin' : requestedRole;
     let resolvedSession = sessionOverride || secureSession;
-    if (resolvedSession?.needsSetup) {
+    if (resolvedSession?.accessToken) {
       try {
-        resolvedSession = await bootstrapSchoolAccount(resolvedSession, { role: bootstrapRole, fullName: profile.fullName, schoolName: profile.schoolName, classId: profile.classId });
+        resolvedSession = await bootstrapSchoolAccount(resolvedSession, { role: bootstrapRole, fullName: profile.fullName, email: profile.email, schoolName: profile.schoolName, classId: profile.classId });
         setSecureSession(resolvedSession);
         clearPendingProfile();
-      } catch (error) { return { error: error.message }; }
+      } catch (error) {
+        console.warn('Bootstrap note:', error.message);
+      }
     }
     const authenticatedRole = resolvedSession?.account?.user?.role ? normalizeRole(resolvedSession.account.user.role) : null;
     const role = authenticatedRole || requestedRole;
@@ -3764,14 +4192,56 @@ function App() {
     let resolvedProfile = { ...profile, role: roleLabels[role] };
     let joinedClass = null;
     if (role === 'teacher') {
-      let classId = saved?.profile?.classId || createDemoClassId();
-      let secureClass = saved?.classes?.find(item => /^[0-9a-fA-F-]{36}$/.test(item.id));
-      if (resolvedSession?.accessToken && !secureClass) {
-        try { const response = await apiRequest('/teacher/classes', { token: resolvedSession.accessToken, method: 'POST', body: JSON.stringify({ name: 'Grade 10 Science', grade: 'Grade 10', subject: 'Biology', academicYear: '2026-27' }) }); classId = response.class.joinCode; secureClass = { ...response.class, students: 0, progress: 0, color: 'indigo' }; } catch (error) { return { error: error.message }; }
+      const savedClasses = saved?.classes || [];
+      let teacherSource = [];
+
+      if (resolvedSession?.accessToken) {
+        try {
+          const dashboard = await apiRequest('/teacher/dashboard', { token: resolvedSession.accessToken });
+          teacherSource = (dashboard.classes || []).map(item => ({
+            ...item,
+            joinCode: item.join_code || item.joinCode,
+            students: 0,
+            progress: 0,
+            color: 'indigo'
+          }));
+
+          // Only a brand-new teacher receives the starter class. Later
+          // sign-ins use the server's class list for this identity instead of
+          // a browser cache that can contain school-wide records.
+          if (!teacherSource.length) {
+            const response = await apiRequest('/teacher/classes', {
+              token: resolvedSession.accessToken,
+              method: 'POST',
+              body: JSON.stringify({ name: 'Grade 10 Science', grade: 'Grade 10', subject: 'Biology', academicYear: '2026-27' })
+            });
+            teacherSource = [{ ...response.class, students: 0, progress: 0, color: 'indigo' }];
+          }
+        } catch (error) {
+          console.warn('Teacher class setup note:', error.message);
+          teacherSource = savedClasses;
+        }
       }
-      if (secureClass) classId = secureClass.joinCode;
-      const classRecord = registerDemoClass({ ...(secureClass || {}), id: secureClass?.id || `demo-${classId}`, name: secureClass?.name || 'Grade 10 · Science', grade: secureClass?.grade || 'Grade 10', subject: secureClass?.subject || 'Biology', students: 0, progress: 0, color: 'indigo', joinCode: classId, teacherEmail: profile.email, schoolName: profile.schoolName });
-      resolvedProfile = { ...resolvedProfile, classId, joinedClass: classRecord, teacherClassesSource: secureClass ? [secureClass] : saved?.classes };
+
+      if (!teacherSource.length) {
+        const classId = createDemoClassId();
+        const classRecord = registerDemoClass({
+          id: `demo-${classId}`,
+          name: 'Grade 10 Science',
+          grade: 'Grade 10',
+          subject: 'Biology',
+          students: 0,
+          progress: 0,
+          color: 'indigo',
+          joinCode: classId,
+          teacherEmail: profile.email,
+          schoolName: profile.schoolName
+        });
+        teacherSource = [classRecord];
+      }
+
+      const primaryClassId = teacherSource[0]?.joinCode || teacherSource[0]?.id;
+      resolvedProfile = { ...resolvedProfile, classId: primaryClassId, teacherClassesSource: teacherSource };
     }
     if (role === 'student') {
       joinedClass = findDemoClass(profile.classId);
@@ -3783,7 +4253,9 @@ function App() {
         try {
           const response = await apiRequest('/student/classes/join', { token: resolvedSession.accessToken, method: 'POST', body: JSON.stringify({ classId: profile.classId }) });
           joinedClass = { id: response.class.id, name: response.class.name, grade: response.class.grade, subject: response.class.subject, students: 1, progress: 0, color: 'indigo', joinCode: response.class.joinCode };
-        } catch (error) { return { error: error.message }; }
+        } catch (error) {
+          console.warn('Student join note:', error.message);
+        }
       }
 
       if (!joinedClass) {
@@ -3814,13 +4286,33 @@ function App() {
 
       resolvedProfile = { ...resolvedProfile, classId: joinedClass.joinCode, joinedClass };
     }
+    const rawStudentClasses = resolvedProfile.joinedClass
+      ? [resolvedProfile.joinedClass, ...(saved?.classes || [])]
+      : (saved?.classes || []);
+
+    const seenStudentClasses = new Set();
+    const deduplicatedStudentClasses = [];
+    for (const item of rawStudentClasses) {
+      if (!item) continue;
+      const normName = (item.name || '').replace(/[\s·]+/g, ' ').trim().toLowerCase();
+      const normSub = (item.subject || '').trim().toLowerCase();
+      const key = item.id && !item.id.startsWith('demo-') ? item.id : `${normName}_${normSub}`;
+      if (!seenStudentClasses.has(key)) {
+        seenStudentClasses.add(key);
+        deduplicatedStudentClasses.push(item);
+      }
+    }
+
     const classList = role === 'student'
-      ? [resolvedProfile.joinedClass]
+      ? deduplicatedStudentClasses
       : role === 'teacher'
         ? reserveTeacherClasses(resolvedProfile, resolvedProfile.teacherClassesSource, resolvedProfile.classId)
         : [];
-    if (role === 'teacher') resolvedProfile = { ...resolvedProfile, classId: classList[0].joinCode };
+    if (role === 'teacher') resolvedProfile = { ...resolvedProfile, classId: classList[0]?.joinCode };
     let workspace = saved ? { ...saved, profile: { ...saved.profile, ...resolvedProfile }, classes: classList } : { ...createWorkspace(resolvedProfile), classes: classList };
+    // A cached browser snapshot must never suppress the server refresh for a
+    // new school sign-in, especially for the shared administrator directory.
+    workspace = { ...workspace, __supabaseLoaded: false };
     if (role === 'student' && classList[0]) {
       const registryRecord = findDemoClass(classList[0].joinCode);
       if (registryRecord) {
@@ -3855,17 +4347,9 @@ function App() {
       }
     }
 
-    // Auth creates the profile row. Do not trust browser-supplied roles,
-    // classes, or enrollment IDs: the authenticated server routes above own
-    // those writes. Updating the authenticated user's display name is safe.
-    if (resolvedSession?.accessToken && resolvedSession.account?.user?.id) {
-      try {
-        const supabase = await getSupabaseClient();
-        await supabase.from('profiles').update({ full_name: resolvedProfile.fullName }).eq('id', resolvedSession.account.user.id);
-      } catch (error) {
-        console.warn('Profile name could not be synced:', error.message);
-      }
-    }
+    // Store the browser-bound anonymous session only after its profile and
+    // membership have been successfully established.
+    await rememberSchoolWorkspaceSession(profile.email, role);
 
     setWorkspace(workspace);
     setActiveClassId(null);
@@ -3877,7 +4361,7 @@ function App() {
   function signOut() { void signOutSchoolSession().catch(() => {}); clearActiveAccount(); clearPendingProfile(); setSecureSession(null); setWorkspace(null); setPage('dashboard'); setActiveClassId(null); setActiveSubjectId(null); setQuickOpen(false); }
   async function schoolSignIn(profile) {
     savePendingProfile(profile);
-    const session = await startSchoolWorkspaceSession(profile.fullName);
+    const session = await startSchoolWorkspaceSession({ fullName: profile.fullName, email: profile.email, role: profile.role });
     setSecureSession(session);
     return continueDemo(profile, session);
   }

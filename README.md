@@ -43,6 +43,7 @@
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [AI system](#ai-system)
+- [Quiz and assessment workflow](#quiz-and-assessment-workflow)
 - [Supabase data and security](#supabase-data-and-security)
 - [API reference](#api-reference)
 - [Persistence and demo mode](#persistence-and-demo-mode)
@@ -102,7 +103,8 @@ The application supports three experiences:
 
 ### AI-assisted teaching
 
-- Structured test/question drafts from subject, chapter, grade, marks, difficulty, and question-type inputs.
+- **AI quiz generation** creates structured question drafts from subject, chapter, grade, marks, difficulty, and question-type inputs. Each draft includes questions, correct answers, explanations, and learning topics for teacher review before it is published.
+- Quiz diagnostics turn recorded student attempts into class and individual performance views, including topic accuracy, question difficulty, common mistakes, and revision guidance. They do not invent submission data when no learner has attempted a quiz.
 - **Ask AI** is available throughout the workspace in chat and voice modes. It sends the current authenticated role, page, active class, and only authorized Supabase records to the server before a provider is called.
 - Ask AI streams its answer, identifies the active provider, and switches from Gemini to OpenRouter to Groq if a provider fails.
 - Ask AI is instructed to use verified records only: it does not fabricate student names, marks, attendance, submissions, or percentages when that data is unavailable.
@@ -148,7 +150,7 @@ flowchart LR
     O[OpenRouter]
     R[Groq]
     S[Supabase]
-    AU[Supabase Auth\nMagic-link session]
+    AU[Supabase Auth\nInstant browser session]
     DB[(Postgres + RLS)]
     ST[Private Storage\nTeaching resources / voice media]
 
@@ -184,7 +186,7 @@ flowchart LR
 | API | Node.js + Express 5 | REST endpoints, validation, access control, uploads, and AI orchestration. |
 | Validation | Zod | Validates public inputs and structured AI outputs. |
 | Database | Supabase Postgres | Schools, profiles, memberships, classes, learning data, and audit records. |
-| Authentication | Supabase Auth | Magic-link authentication with persisted browser sessions. |
+| Authentication | Supabase Auth | Anonymous, browser-bound MVP sessions; no sign-in email is sent. |
 | File storage | Supabase Storage | Private class resources and voice-feedback media. |
 | AI | Gemini, OpenRouter, Groq | Configurable server-side generation/transcription fallback chain. |
 | Logging & hardening | Morgan, Helmet, express-rate-limit | Request logging, HTTP hardening, and endpoint rate limits. |
@@ -335,6 +337,8 @@ The canonical configuration template is [`backend/.env.example`](backend/.env.ex
 
 - Supabase Auth issues the access tokens used by the backend; there is **no separate application `JWT_SECRET`** in this project.
 - The frontend uses persisted Supabase sessions (`persistSession` and token refresh) so a refresh does not normally log users out.
+- Instant workspace sign-in uses Supabase anonymous users. TeachMate reuses the saved browser session for the same normalized email and role, so signing out of the app and returning on the same browser does not create another profile or membership.
+- This no-email MVP flow is intentionally browser-bound. Clearing site data or moving to another browser cannot safely recover the same anonymous user; use a permanent Supabase authentication method before treating it as a production login.
 - Demo mode is intended for local/product demonstrations and stores its state in browser storage. It is not a substitute for Supabase authentication in production.
 
 ## AI system
@@ -372,6 +376,18 @@ sequenceDiagram
 ```
 
 `AI_PROVIDER_ORDER` controls the route. A provider is skipped when its required key/model is not configured. The router falls through when a provider request fails **or** when its response cannot be parsed/validated as the requested structured shape.
+
+## Quiz and assessment workflow
+
+TeachMate keeps the teacher in control of every assessment decision. AI can accelerate preparation and surface patterns in completed work; it does not automatically publish work, grade students without review, or replace teacher feedback.
+
+1. A teacher opens the quiz or assessment workflow and supplies the subject, chapter, grade, difficulty, marks, and requested question types.
+2. `POST /api/ai/test-generator` requests a structured draft through the configured Gemini → OpenRouter → Groq provider chain.
+3. The teacher reviews, edits, or discards the draft before publishing it to the selected class. Published assessments and questions are stored in `assessments` and `assessment_questions`.
+4. Student attempts are stored as submissions. The quiz diagnostics screen derives topic, question, and learner-level summaries from those recorded attempts.
+5. While marking an assessment, a teacher may record a voice comment. The original audio is privately stored and delivered only to the selected enrolled learner; it is not converted into an AI insight or transcript on the direct-feedback path.
+
+The assessment interface therefore has two intentionally separate feedback choices: typed feedback for the assessment record and direct recorded feedback for the learner. Both remain teacher-authored and class-scoped.
 
 ### Available AI endpoints
 
@@ -467,10 +483,10 @@ TeachMate has two deliberately separate persistence paths:
 
 | Mode | Where data is kept | Intended use |
 | --- | --- | --- |
-| **Supabase mode** | Supabase Auth, Postgres, and private Storage | Real multi-user data, role protection, shared classroom updates. |
+| **Supabase mode** | Supabase Auth, Postgres, and private Storage | Shared classroom data, role protection, and browser-bound instant workspace sessions. |
 | **Demo mode** | Browser local storage | Product demo and offline-friendly exploration without a password. |
 
-In demo mode, the email acts as the returning workspace key. The UI restores saved dashboard/class/theme state for the same email. When Supabase credentials and an authenticated session are available, server data is used for the protected flows instead.
+In demo mode, the email acts as the returning workspace key. The UI restores saved dashboard/class/theme state for the same email. In the instant Supabase MVP flow, the browser also stores an email-and-role session reference and restores the same anonymous Supabase user after local sign-out, avoiding duplicate profile rows. When Supabase credentials and an authenticated session are available, server data is used for the protected flows instead.
 
 > [!WARNING]
 > Browser demo storage is device/browser specific. Use Supabase mode for data that must survive device changes, be shared with other users, or be protected by RLS.
@@ -521,14 +537,14 @@ Codex was used as an engineering collaborator for the iterative build workflow, 
 
 ### GPT-5.6 development support
 
-GPT-5.6 was used in the project development process for high-level planning and implementation support:
+GPT-5.6 was used through Codex during the project development process for high-level planning, implementation, and review support. In practical terms, Codex used GPT-5.6 to inspect the existing application before editing it, make focused changes in the React/Express/Supabase layers, run checks, and turn observed errors into follow-up fixes. It was a developer tool in the engineering loop, not a model that runs in a TeachMate user session.
 
 - Architecture reasoning across client, API, AI, database, and storage boundaries.
 - Role and permission modeling for school administrator, teacher, and student experiences.
 - Designing class-scoped state so teachers can move between classes without leaking data across them.
 - Designing structured prompts and validation requirements for question generation and feedback drafts.
 - Helping identify risks around frontend-only access control, provider-key exposure, and session persistence.
-- Supporting documentation, debugging hypotheses, and iterative product decisions.
+- Supporting documentation, debugging hypotheses, migration review, test/build verification, and iterative product decisions.
 
 ### Engineering decisions that matter
 

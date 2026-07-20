@@ -31,6 +31,38 @@ export const teacherClassRouter = Router();
 teacherClassRouter.post('/classes', async (req, res, next) => {
   try {
     const input = classSchema.parse(req.body);
+    // Reuse an existing class before creating one. The initial teacher
+    // workspace asks for the same Grade 10 Biology class on a later login, so
+    // this must be deterministic even when legacy duplicate records exist.
+    // `maybeSingle()` without a limit errors when it finds multiple old
+    // matches; selecting the oldest match avoids turning that error into a new
+    // INSERT.
+    const { data: existingClass, error: existingClassError } = await req.auth.supabase
+      .from('classes')
+      .select('id, name, grade, subject, join_code, joining_enabled, created_at')
+      .eq('school_id', req.auth.profile.school_id)
+      .eq('teacher_id', req.auth.user.id)
+      .eq('name', input.name)
+      .eq('grade', input.grade)
+      .eq('subject', input.subject)
+      .eq('academic_year', input.academicYear || '2026')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingClassError) throw existingClassError;
+
+    if (existingClass) {
+      return res.status(200).json({
+        class: {
+          ...existingClass,
+          joinCode: existingClass.join_code,
+          inviteCode: existingClass.join_code,
+          joiningEnabled: existingClass.joining_enabled ?? true
+        }
+      });
+    }
+
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const inviteCode = generateInviteCode(input.subject, input.grade);
       const { data, error } = await req.auth.supabase

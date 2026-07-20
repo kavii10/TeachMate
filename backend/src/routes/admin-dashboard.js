@@ -11,13 +11,116 @@ const announcementSchema = z.object({
 router.get('/dashboard', async (req, res, next) => {
   try {
     const schoolId = req.auth.profile.school_id;
-    const [teachers, students, classes] = await Promise.all([
-      req.auth.supabase.from('school_memberships').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active').eq('role', 'teacher'),
-      req.auth.supabase.from('school_memberships').select('id', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active').eq('role', 'student'),
-      req.auth.supabase.from('classes').select('id', { count: 'exact', head: true }).eq('school_id', schoolId)
+    const [schoolResult, membershipsResult, classesResult, announcementsResult] = await Promise.all([
+      req.auth.supabase.from('schools').select('id, name, academic_year, timezone').eq('id', schoolId).maybeSingle(),
+      req.auth.supabase
+        .from('school_memberships')
+        // school_memberships points at profiles through both user_id and invited_by.
+        // Fetch profile records separately so this query never relies on an
+        // ambiguous PostgREST embedded relationship.
+        .select('user_id, role, created_at')
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .in('role', ['teacher', 'student'])
+        .order('created_at'),
+      req.auth.supabase
+        .from('classes')
+        .select('id, name, grade, subject, academic_year, join_code, teacher_id, created_at')
+        .eq('school_id', schoolId)
+        .order('created_at'),
+      req.auth.supabase
+        .from('announcements')
+        .select('id, title, body, audience, created_at')
+        .eq('school_id', schoolId)
+        .order('created_at', { ascending: false })
+        .limit(50)
     ]);
-    if (teachers.error || students.error || classes.error) throw new Error('Could not load the administrator dashboard.');
-    res.json({ administrator: req.auth.profile, counts: { teachers: teachers.count ?? 0, students: students.count ?? 0, classes: classes.count ?? 0 } });
+
+    const baseQueryErrors = {
+      school: schoolResult.error,
+      memberships: membershipsResult.error,
+      classes: classesResult.error,
+      announcements: announcementsResult.error
+    };
+    if (Object.values(baseQueryErrors).some(Boolean)) {
+      console.error('Administrator school directory query failed:', Object.fromEntries(
+        Object.entries(baseQueryErrors)
+          .filter(([, error]) => error)
+          .map(([query, error]) => [query, error.message])
+      ));
+      throw new Error('Could not load the administrator school directory.');
+    }
+
+    const classes = classesResult.data || [];
+    const memberships = membershipsResult.data || [];
+    const memberIds = [...new Set(memberships.map(membership => membership.user_id))];
+    const classIds = classes.map(classRecord => classRecord.id);
+    const [profilesResult, enrollmentsResult] = await Promise.all([
+      memberIds.length
+        ? req.auth.supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', memberIds)
+        : { data: [], error: null },
+      classIds.length
+        ? req.auth.supabase
+            .from('enrollments')
+            .select('class_id, student_id, enrolled_at')
+            .in('class_id', classIds)
+            .order('enrolled_at')
+        : { data: [], error: null }
+    ]);
+
+    const relatedQueryErrors = {
+      profiles: profilesResult.error,
+      enrollments: enrollmentsResult.error
+    };
+    if (Object.values(relatedQueryErrors).some(Boolean)) {
+      console.error('Administrator school directory related query failed:', Object.fromEntries(
+        Object.entries(relatedQueryErrors)
+          .filter(([, error]) => error)
+          .map(([query, error]) => [query, error.message])
+      ));
+      throw new Error('Could not load the administrator school directory.');
+    }
+
+    const profilesById = new Map((profilesResult.data || []).map(profile => [profile.id, profile]));
+    const members = (membershipsResult.data || []).map(membership => {
+      const profile = profilesById.get(membership.user_id);
+      return {
+        id: membership.user_id,
+        role: membership.role,
+        name: profile?.full_name || 'Unnamed member',
+        joinedAt: membership.created_at
+      };
+    });
+
+    res.json({
+      administrator: req.auth.profile,
+      school: schoolResult.data ? {
+        id: schoolResult.data.id,
+        name: schoolResult.data.name,
+        academicYear: schoolResult.data.academic_year,
+        timezone: schoolResult.data.timezone
+      } : { id: schoolId },
+      members,
+      classes,
+      enrollments: (enrollmentsResult.data || []).map(enrollment => {
+        const student = profilesById.get(enrollment.student_id);
+        return {
+          classId: enrollment.class_id,
+          studentId: enrollment.student_id,
+          studentName: student?.full_name || 'Unnamed student',
+          enrolledAt: enrollment.enrolled_at
+        };
+      }),
+      announcements: announcementsResult.data || [],
+      counts: {
+        teachers: members.filter(member => member.role === 'teacher').length,
+        students: members.filter(member => member.role === 'student').length,
+        classes: classes.length
+      }
+    });
   } catch (error) { next(error); }
 });
 

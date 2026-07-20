@@ -9,6 +9,7 @@ const optionalClassId = z.preprocess(
 const bootstrapSchema = z.object({
   role: z.enum(['teacher', 'student', 'school_admin']),
   fullName: z.string().trim().min(1).max(160),
+  email: z.string().trim().email().max(320),
   schoolName: z.string().trim().min(2).max(160).optional(),
   classId: optionalClassId
 });
@@ -22,6 +23,7 @@ router.post('/bootstrap', async (req, res, next) => {
     const { data, error } = await req.auth.supabase.rpc('bootstrap_mvp_workspace', {
       p_role: input.role,
       p_full_name: input.fullName,
+      p_email: input.email,
       p_school_name: input.schoolName || null,
       p_join_code: input.classId || null
     });

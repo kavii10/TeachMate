@@ -10,7 +10,7 @@ export async function authenticateUser(req, res, next) {
 
   const { data: profile, error: profileError } = await userSupabase
     .from('profiles')
-    .select('id, full_name')
+    .select('id, full_name, email')
     .eq('id', data.user.id)
     .single();
   if (profileError || !profile) return res.status(403).json({ error: 'Workspace setup is incomplete. Please sign in again.' });

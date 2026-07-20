@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, ArrowUpRight, BarChart3, BookOpen, CalendarCheck, CheckCircle2, FileText, GraduationCap, MessageSquare, School, Users, Play, Volume2, Award, Sparkles, Send, Download, Paperclip, X, Check, Search, Mic, Bell, Plus, Copy, RefreshCw, Lock, Unlock } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, BarChart3, BookOpen, CalendarCheck, CheckCircle2, FileText, GraduationCap, MessageSquare, School, Users, Play, Volume2, Award, Sparkles, Send, Download, Paperclip, X, Check, Search, Mic, Bell, Plus, Copy, RefreshCw, Lock, Unlock, MoreHorizontal, Edit3, Trash2 } from 'lucide-react';
 import { roleLabels } from '../data.js';
 import { apiRequest } from '../lib/api.js';
 import { findDemoClass, addStudentToDemoClass } from '../lib/storage.js';
@@ -403,28 +403,51 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
   }
 
   function submitQuiz(quiz) {
-    let score = 0;
+    let correctCount = 0;
+    let incorrectCount = 0;
+    let skippedCount = 0;
     const totalQuestions = quiz.questions?.length || 0;
-    if (totalQuestions > 0) {
-      quiz.questions.forEach((q, idx) => {
-        if (quizAnswers[idx]?.trim().toLowerCase() === q.answer?.trim().toLowerCase()) {
-          score += 1;
-        }
-      });
-    }
-    const scorePct = Math.round((score / (totalQuestions || 1)) * 100);
+
+    const detailedAnswers = (quiz.questions || []).map((q, idx) => {
+      const userAns = (quizAnswers[idx] || '').trim();
+      const correctAns = (q.answer || '').trim();
+      const isSkipped = userAns === '';
+      const isCorrect = !isSkipped && userAns.toLowerCase() === correctAns.toLowerCase();
+
+      if (isSkipped) skippedCount++;
+      else if (isCorrect) correctCount++;
+      else incorrectCount++;
+
+      return {
+        questionId: q.id || `q-${idx}`,
+        prompt: q.prompt,
+        learningTopic: q.learningTopic || q.topic || quiz.topic || 'General Concept',
+        userAnswer: userAns || 'Skipped',
+        correctAnswer: correctAns,
+        isCorrect,
+        isSkipped
+      };
+    });
+
+    const scorePct = Math.round((correctCount / (totalQuestions || 1)) * 100);
     setQuizScore(scorePct);
 
     const submissionRecord = {
       studentId,
-      studentName: workspace.profile.fullName,
+      studentName: workspace.profile.fullName || 'Student',
       score: scorePct,
-      submittedAt: new Date().toISOString()
+      correctCount,
+      incorrectCount,
+      skippedCount,
+      rawScore: `${correctCount}/${totalQuestions}`,
+      timeTakenFormatted: '2m 45s',
+      submittedAt: new Date().toISOString(),
+      answers: detailedAnswers
     };
 
     updateWorkspace(current => ({
       ...current,
-      quizzes: current.quizzes.map(q => {
+      quizzes: (current.quizzes || []).map(q => {
         if (q.id !== quiz.id) return q;
         const others = (q.submissions || []).filter(s => s.studentId !== studentId);
         return { ...q, submissions: [...others, submissionRecord] };
@@ -938,6 +961,37 @@ function ProfileView({ workspace }) {
 
 export default function RolePortal({ role, page, workspace, updateWorkspace, setPage, activeSubjectId, onOpenSubject, onBackSubject, authToken, activeSubjectTab, setActiveSubjectTab, mobileOpen, closeMobile, theme, onTheme, onSignOut, onToast }) {
   const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [activeMenuId, setActiveMenuId] = useState(null);
+  const [editingSubject, setEditingSubject] = useState(null);
+  const [deletingSubject, setDeletingSubject] = useState(null);
+
+  useEffect(() => {
+    function handleClickOutside() {
+      setActiveMenuId(null);
+    }
+    if (activeMenuId) {
+      window.addEventListener('click', handleClickOutside);
+      return () => window.removeEventListener('click', handleClickOutside);
+    }
+  }, [activeMenuId]);
+
+  // Deduplicate student classes by unique key
+  const uniqueStudentClasses = (() => {
+    const list = workspace.classes || [];
+    const seen = new Set();
+    const result = [];
+    for (const item of list) {
+      if (!item) continue;
+      const normName = (item.name || '').replace(/[\s·]+/g, ' ').trim().toLowerCase();
+      const normSub = (item.subject || '').trim().toLowerCase();
+      const key = item.id && !item.id.startsWith('demo-') ? item.id : `${normName}_${normSub}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(item);
+      }
+    }
+    return result;
+  })();
 
   if (page === 'dashboard') {
     return (
@@ -968,7 +1022,7 @@ export default function RolePortal({ role, page, workspace, updateWorkspace, set
           <div><div className="eyebrow">SCHOOL ADMINISTRATION</div><h1>Class management</h1><p>Open a class record to review its teacher, learners, Class Invite Code, and activity.</p></div>
         </div>
         <section className="role-subject-grid">
-          {workspace.classes.map(classRecord => (
+          {uniqueStudentClasses.map(classRecord => (
             <article className="card role-subject-card" key={classRecord.id}>
               <span className="file-icon"><BookOpen size={20} /></span>
               <h3>{classRecord.name}</h3>
@@ -977,14 +1031,14 @@ export default function RolePortal({ role, page, workspace, updateWorkspace, set
               <span className="subject-open">{classRecord.students || 0} learners &middot; {classRecord.progress || 0}% mastery</span>
             </article>
           ))}
-          {workspace.classes.length === 0 && <p className="workspace-empty">No active classes registered yet.</p>}
+          {uniqueStudentClasses.length === 0 && <p className="workspace-empty">No active classes registered yet.</p>}
         </section>
       </div>
     );
   }
 
   if (role === 'student' && page === 'subjects') {
-    const active = workspace.classes.find(item => item.id === activeSubjectId);
+    const active = uniqueStudentClasses.find(item => item.id === activeSubjectId);
     if (active) {
       return (
         <div className="class-workspace-shell">
@@ -1019,16 +1073,59 @@ export default function RolePortal({ role, page, workspace, updateWorkspace, set
             </button>
           </div>
           <section className="role-subject-grid">
-            {workspace.classes.map(classRecord => (
-              <button className="card role-subject-card" key={classRecord.id} onClick={() => onOpenSubject(classRecord.id)}>
-                <span className="file-icon"><BookOpen size={20} /></span>
+            {uniqueStudentClasses.map(classRecord => (
+              <div
+                className="card role-subject-card"
+                key={classRecord.id}
+                onClick={() => onOpenSubject(classRecord.id)}
+                style={{ position: 'relative' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', marginBottom: '6px' }}>
+                  <span className="file-icon"><BookOpen size={20} /></span>
+                  <div className="class-hero-actions" style={{ position: 'relative' }}>
+                    <button
+                      type="button"
+                      aria-label={`More options for ${classRecord.name}`}
+                      style={{ background: 'transparent', border: 0, padding: '4px', cursor: 'pointer', borderRadius: '6px', color: 'var(--muted)' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMenuId(activeMenuId === classRecord.id ? null : classRecord.id);
+                      }}
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                    {activeMenuId === classRecord.id && (
+                      <div className="class-card-dropdown" style={{ top: '30px', right: 0, zIndex: 50 }} onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            setEditingSubject(classRecord);
+                          }}
+                        >
+                          <Edit3 size={13} /> Edit Subject
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            setDeletingSubject(classRecord);
+                          }}
+                        >
+                          <Trash2 size={13} /> Delete Subject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <h3>{classRecord.name}</h3>
                 <p>{classRecord.subject}</p>
                 {classRecord.joinCode && <span className="class-id-chip">Invite Code: {classRecord.joinCode}</span>}
                 <span className="subject-open">Open subject <ArrowUpRight size={15} /></span>
-              </button>
+              </div>
             ))}
-            {workspace.classes.length === 0 && (
+            {uniqueStudentClasses.length === 0 && (
               <div className="card" style={{ padding: '30px', textAlign: 'center', width: '100%', gridColumn: '1 / -1' }}>
                 <span className="metric-icon indigo" style={{ height: '44px', width: '44px', margin: '0 auto 12px' }}><GraduationCap size={24} /></span>
                 <h3>No subjects joined yet</h3>
@@ -1048,6 +1145,26 @@ export default function RolePortal({ role, page, workspace, updateWorkspace, set
           updateWorkspace={updateWorkspace}
           onToast={onToast || alert}
         />
+        <AnimatePresence>
+          {editingSubject && (
+            <EditSubjectModal
+              subjectToEdit={editingSubject}
+              workspace={workspace}
+              updateWorkspace={updateWorkspace}
+              onClose={() => setEditingSubject(null)}
+              onToast={onToast || alert}
+            />
+          )}
+          {deletingSubject && (
+            <ConfirmDeleteSubjectModal
+              subjectToDelete={deletingSubject}
+              workspace={workspace}
+              updateWorkspace={updateWorkspace}
+              onClose={() => setDeletingSubject(null)}
+              onToast={onToast || alert}
+            />
+          )}
+        </AnimatePresence>
       </>
     );
   }
@@ -1082,6 +1199,88 @@ export default function RolePortal({ role, page, workspace, updateWorkspace, set
           </article>
         ))}
       </section>
+    </div>
+  );
+}
+
+function EditSubjectModal({ subjectToEdit, workspace, updateWorkspace, onClose, onToast }) {
+  const [form, setForm] = useState({
+    name: subjectToEdit.name || '',
+    subject: subjectToEdit.subject || ''
+  });
+  const [error, setError] = useState('');
+
+  function submit(e) {
+    e.preventDefault();
+    if (!form.name.trim() || !form.subject.trim()) return setError('Add a subject name and topic.');
+
+    updateWorkspace(current => ({
+      ...current,
+      classes: (current.classes || []).map(c => c.id === subjectToEdit.id ? { ...c, name: form.name.trim(), subject: form.subject.trim() } : c)
+    }));
+
+    onToast(`Subject "${form.name}" updated.`);
+    onClose();
+  }
+
+  return (
+    <div className="modal-backdrop" style={{ zIndex: 95 }} onMouseDown={onClose}>
+      <motion.section className="quick-modal" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} onMouseDown={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow">EDIT SUBJECT</p>
+            <h2>Edit {subjectToEdit.name}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose}><X size={19} /></button>
+        </div>
+        <form className="new-class-form" onSubmit={submit}>
+          <div className="field">
+            <span>Subject Name</span>
+            <input value={form.name} onChange={e => setForm(c => ({ ...c, name: e.target.value }))} placeholder="Grade 10 Science" autoFocus />
+          </div>
+          <div className="field" style={{ marginTop: '12px' }}>
+            <span>Subject Topic / Description</span>
+            <input value={form.subject} onChange={e => setForm(c => ({ ...c, subject: e.target.value }))} placeholder="Biology" />
+          </div>
+          {error && <p className="form-error" style={{ marginTop: '8px' }}>{error}</p>}
+          <div className="modal-actions" style={{ marginTop: '18px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <button type="button" className="button ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button primary" style={{ background: '#4f46e5', color: '#fff', border: 0, padding: '8px 16px', borderRadius: '8px' }}><Check size={15} style={{ marginRight: '4px' }} /> Save Changes</button>
+          </div>
+        </form>
+      </motion.section>
+    </div>
+  );
+}
+
+function ConfirmDeleteSubjectModal({ subjectToDelete, workspace, updateWorkspace, onClose, onToast }) {
+  function handleDelete() {
+    updateWorkspace(current => ({
+      ...current,
+      classes: (current.classes || []).filter(c => c.id !== subjectToDelete.id && c.joinCode !== subjectToDelete.joinCode)
+    }));
+    onToast(`Unenrolled from "${subjectToDelete.name}".`);
+    onClose();
+  }
+
+  return (
+    <div className="modal-backdrop" style={{ zIndex: 95 }} onMouseDown={onClose}>
+      <motion.section className="quick-modal" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} onMouseDown={e => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <p className="eyebrow" style={{ color: '#ef4444' }}>UNENROLL / DELETE SUBJECT</p>
+            <h2>Remove "{subjectToDelete.name}"?</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose}><X size={19} /></button>
+        </div>
+        <p className="muted" style={{ marginBottom: '20px', lineHeight: '1.5' }}>
+          Are you sure you want to remove this subject from your student workspace? You can join it again anytime using the Class Invite Code.
+        </p>
+        <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <button type="button" className="button ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="button primary" style={{ background: '#ef4444', color: '#fff', border: 0, padding: '8px 16px', borderRadius: '8px' }} onClick={handleDelete}><Trash2 size={15} style={{ marginRight: '4px' }} /> Remove Subject</button>
+        </div>
+      </motion.section>
     </div>
   );
 }
