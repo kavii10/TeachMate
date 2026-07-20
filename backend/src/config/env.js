@@ -3,7 +3,17 @@ import { z } from 'zod';
 
 const optionalSecret = z.string().trim().optional().default('');
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z.preprocess(
+    val => {
+      if (typeof val !== 'string') return 'production';
+      const clean = val.trim().toLowerCase();
+      if (clean === 'prod' || clean === 'production') return 'production';
+      if (clean === 'dev' || clean === 'development') return 'development';
+      if (clean === 'test') return 'test';
+      return clean || 'production';
+    },
+    z.enum(['development', 'test', 'production']).default('production')
+  ),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   APP_ORIGIN: z.string().min(1).default('http://localhost:3000'),
   SUPABASE_URL: z.string().url(),
