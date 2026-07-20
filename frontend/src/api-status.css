@@ -1,0 +1,1 @@
+.api-status{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:10px;font-weight:700;white-space:nowrap}.api-status i{height:6px;width:6px;border-radius:50%;background:#94a3b8}.api-status.online i{background:#10b981;box-shadow:0 0 0 3px #d1fae5}@media(max-width:900px){.api-status{display:none}}

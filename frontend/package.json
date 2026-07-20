@@ -1,0 +1,22 @@
+{
+  "name": "teachmate-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "vite build --mode production"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.7",
+    "@vitejs/plugin-react": "^5.0.4",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.6"
+  }
+}
