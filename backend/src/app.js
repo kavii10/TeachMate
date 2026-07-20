@@ -28,6 +28,7 @@ const supabaseOrigin = new URL(env.SUPABASE_URL).origin;
 const supabaseRealtimeOrigin = supabaseOrigin.replace(/^http/, 'ws');
 
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: { directives: { connectSrc: ["'self'", supabaseOrigin, supabaseRealtimeOrigin] } }
