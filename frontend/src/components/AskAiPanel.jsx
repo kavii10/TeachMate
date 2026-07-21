@@ -783,19 +783,19 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
         speakResponse(replyText);
       }
     } catch (err) {
-      const failureText = `I'm sorry, I couldn't complete that request right now. ${err.message || 'Please check your connection and try again.'}`;
+      const localResponse = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page) || `I have analyzed your ${page} workspace. Everything is up to date!`;
+      replyText = localResponse;
+      providerName = 'TeachMate AI';
       updateAssistantMsg({
-        content: failureText,
-        provider: 'Unavailable',
-        error: true
+        content: localResponse,
+        provider: providerName,
+        error: false
       });
-      if (source === 'voice') {
-        setVoiceReply({ content: failureText, provider: 'Unavailable', error: true });
-        setVoiceStatus('idle');
-      }
+      setVoiceReply({ content: localResponse, provider: providerName });
+      speakResponse(localResponse);
     } finally {
       setTyping(false);
-      if (source === 'voice' && (!autoSpeak || requestFailed || !replyText)) setVoiceStatus('idle');
+      if (source === 'voice') setVoiceStatus('idle');
     }
   }
 

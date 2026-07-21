@@ -1120,66 +1120,84 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
   function generateTopicQuestions(topicInput, count = 5) {
     const cleanTopic = topicInput.trim();
     const lowerTopic = cleanTopic.toLowerCase();
+    const targetCount = Math.max(1, Number(count) || 5);
 
-    // 1. Specialized Topic Question Pools
+    let basePool = [];
+
     if (lowerTopic.includes('photosynthesis') || lowerTopic.includes('plant') || lowerTopic.includes('botany')) {
-      return [
+      basePool = [
         { type: 'MCQ', prompt: 'Which primary pigment in plants absorbs light energy for photosynthesis?', options: ['Chlorophyll a', 'Carotenoid', 'Anthocyanin', 'Xanthophyll'], answer: 'Chlorophyll a', explanation: 'Chlorophyll a absorbs blue-violet and red light wavelengths during photosynthesis.' },
         { type: 'Fill Blank', prompt: 'The microscopic pores on plant leaves that regulate gas exchange are called _______.', options: [], answer: 'stomata', explanation: 'Stomata allow CO2 uptake and release of O2 and water vapor.' },
         { type: 'MCQ', prompt: 'Where in the chloroplast do the light-independent reactions (Calvin Cycle) take place?', options: ['Stroma', 'Thylakoid membrane', 'Outer membrane', 'Cristae'], answer: 'Stroma', explanation: 'The Calvin Cycle occurs in the stroma, while light reactions take place in thylakoid membranes.' },
         { type: 'Fill Blank', prompt: 'The chemical splitting of water molecules by light energy during photosynthesis is called _______.', options: [], answer: 'photolysis', explanation: 'Photolysis decomposes H2O to provide electrons and release oxygen gas.' },
-        { type: 'MCQ', prompt: 'What are the main starting reactants required for photosynthesis?', options: ['Carbon dioxide, water, and light', 'Glucose and oxygen', 'Nitrogen and oxygen', 'Methane and water'], answer: 'Carbon dioxide, water, and light', explanation: 'Plants use CO2, H2O, and sunlight energy to produce glucose and oxygen.' }
-      ].slice(0, count);
-    }
-
-    if (lowerTopic.includes('newton') || lowerTopic.includes('motion') || lowerTopic.includes('force') || lowerTopic.includes('physics')) {
-      return [
+        { type: 'MCQ', prompt: 'What are the main starting reactants required for photosynthesis?', options: ['Carbon dioxide, water, and light', 'Glucose and oxygen', 'Nitrogen and oxygen', 'Methane and water'], answer: 'Carbon dioxide, water, and light', explanation: 'Plants use CO2, H2O, and sunlight energy to produce glucose and oxygen.' },
+        { type: 'Fill Blank', prompt: 'The primary sugar synthesized by plants during photosynthesis is _______.', options: [], answer: 'glucose', explanation: 'Glucose is synthesized as chemical energy for the plant.' },
+        { type: 'MCQ', prompt: 'Which gas is released into the atmosphere as a byproduct of photosynthesis?', options: ['Oxygen', 'Carbon dioxide', 'Nitrogen', 'Argon'], answer: 'Oxygen', explanation: 'Oxygen is liberated when water molecules split during light-dependent reactions.' },
+        { type: 'Fill Blank', prompt: 'In plant cells, the organelle responsible for conducting photosynthesis is the _______.', options: [], answer: 'chloroplast', explanation: 'Chloroplasts contain thylakoids and stroma where photosynthesis occurs.' },
+        { type: 'MCQ', prompt: 'Which light spectrum wavelengths are least absorbed by chlorophyll?', options: ['Green', 'Blue', 'Red', 'Violet'], answer: 'Green', explanation: 'Chlorophyll reflects green light wavelengths, giving plants their green color.' },
+        { type: 'Fill Blank', prompt: 'The light reactions of photosynthesis generate ATP and _______.', options: [], answer: 'NADPH', explanation: 'ATP and NADPH carry chemical energy to the Calvin Cycle.' }
+      ];
+    } else if (lowerTopic.includes('newton') || lowerTopic.includes('motion') || lowerTopic.includes('force') || lowerTopic.includes('physics')) {
+      basePool = [
         { type: 'MCQ', prompt: "Which of Newton's laws states that force equals mass times acceleration (F = ma)?", options: ['Second Law of Motion', 'First Law of Motion', 'Third Law of Motion', 'Law of Universal Gravitation'], answer: 'Second Law of Motion', explanation: "Newton's 2nd Law establishes the mathematical relationship F = m * a." },
         { type: 'Fill Blank', prompt: 'The tendency of an object to resist changes in its state of motion is called _______.', options: [], answer: 'inertia', explanation: "Inertia is described by Newton's First Law of Motion." },
         { type: 'MCQ', prompt: 'For every action force, what is the reaction force according to Newton’s 3rd Law?', options: ['Equal in magnitude and opposite in direction', 'Equal in magnitude and same in direction', 'Double in magnitude and opposite', 'Zero magnitude'], answer: 'Equal in magnitude and opposite in direction', explanation: "Action and reaction forces occur in equal and opposite pairs." },
-        { type: 'Fill Blank', prompt: 'The SI unit of force named in honor of Sir Isaac Newton is the _______.', options: [], answer: 'newton', explanation: 'One Newton (N) is 1 kg·m/s².' }
-      ].slice(0, count);
-    }
-
-    if (lowerTopic.includes('algebra') || lowerTopic.includes('equation') || lowerTopic.includes('math') || lowerTopic.includes('calculus')) {
-      return [
+        { type: 'Fill Blank', prompt: 'The SI unit of force named in honor of Sir Isaac Newton is the _______.', options: [], answer: 'newton', explanation: 'One Newton (N) is 1 kg·m/s².' },
+        { type: 'MCQ', prompt: 'An object at rest will remain at rest unless acted upon by an net external force according to Newton’s _______ Law.', options: ['First', 'Second', 'Third', 'Fourth'], answer: 'First', explanation: "Newton's First Law is also known as the Law of Inertia." },
+        { type: 'Fill Blank', prompt: 'The rate of change of displacement over time is defined as _______.', options: [], answer: 'velocity', explanation: 'Velocity includes both magnitude (speed) and direction.' },
+        { type: 'MCQ', prompt: 'What is the standard acceleration due to gravity near Earth’s surface?', options: ['9.8 m/s²', '8.9 m/s²', '10.5 m/s²', '7.2 m/s²'], answer: '9.8 m/s²', explanation: 'Standard gravitational acceleration g ≈ 9.8 m/s².' },
+        { type: 'Fill Blank', prompt: 'The product of an object’s mass and its velocity is known as linear _______.', options: [], answer: 'momentum', explanation: 'Momentum p = m * v is a vector quantity.' },
+        { type: 'MCQ', prompt: 'Which type of friction acts on objects that are not moving relative to each other?', options: ['Static friction', 'Kinetic friction', 'Rolling friction', 'Fluid friction'], answer: 'Static friction', explanation: 'Static friction prevents initial motion between touching surfaces.' },
+        { type: 'Fill Blank', prompt: 'Work done on an object is equal to force multiplied by _______.', options: [], answer: 'displacement', explanation: 'Work W = F * d * cos(θ).' }
+      ];
+    } else if (lowerTopic.includes('algebra') || lowerTopic.includes('equation') || lowerTopic.includes('math') || lowerTopic.includes('calculus')) {
+      basePool = [
         { type: 'MCQ', prompt: 'What is the solution for x in the linear equation: 3x + 12 = 27?', options: ['x = 5', 'x = 4', 'x = 9', 'x = 3'], answer: 'x = 5', explanation: 'Subtract 12 from 27 to get 15, then divide 15 by 3 to obtain x = 5.' },
         { type: 'Fill Blank', prompt: 'The formula used to find the roots of a quadratic equation ax² + bx + c = 0 is called the _______ formula.', options: [], answer: 'quadratic', explanation: 'The quadratic formula is x = (-b ± √(b² - 4ac)) / (2a).' },
         { type: 'MCQ', prompt: 'What is the discriminant of the quadratic equation x² - 4x + 4 = 0?', options: ['0', '16', '-16', '4'], answer: '0', explanation: 'Discriminant b² - 4ac = (-4)² - 4(1)(4) = 16 - 16 = 0 (1 repeated real root).' },
-        { type: 'Fill Blank', prompt: 'In a Cartesian plane, the point where the x-axis and y-axis intersect is called the _______.', options: [], answer: 'origin', explanation: 'The origin is at coordinates (0, 0).' }
-      ].slice(0, count);
+        { type: 'Fill Blank', prompt: 'In a Cartesian plane, the point where the x-axis and y-axis intersect is called the _______.', options: [], answer: 'origin', explanation: 'The origin is at coordinates (0, 0).' },
+        { type: 'MCQ', prompt: 'What is the slope of a horizontal line in a Cartesian coordinate system?', options: ['0', '1', 'Undefined', '-1'], answer: '0', explanation: 'Horizontal lines have zero vertical change (rise = 0), so slope m = 0.' },
+        { type: 'Fill Blank', prompt: 'A polynomial expression of degree two is known as a _______ expression.', options: [], answer: 'quadratic', explanation: 'Degree 2 polynomials take the form ax² + bx + c.' },
+        { type: 'MCQ', prompt: 'What is the value of 2³ × 2² according to exponent rules?', options: ['32', '16', '64', '128'], answer: '32', explanation: '2³ × 2² = 2^(3+2) = 2⁵ = 32.' },
+        { type: 'Fill Blank', prompt: 'The set of all possible input values for a function is called its _______.', options: [], answer: 'domain', explanation: 'The domain represents valid input x-values.' },
+        { type: 'MCQ', prompt: 'What is the derivative of f(x) = x³ with respect to x?', options: ['3x²', 'x²', '3x', 'x⁴ / 4'], answer: '3x²', explanation: 'Power rule: d/dx (xⁿ) = n*x^(n-1).' },
+        { type: 'Fill Blank', prompt: 'The logarithm of 100 to base 10 is equal to _______.', options: [], answer: '2', explanation: '10² = 100, so log10(100) = 2.' }
+      ];
     }
 
-    // 2. Generic Topic Question Builder (Non-placeholder, dynamic facts per topic)
-    const generated = [];
-    for (let i = 0; i < count; i++) {
-      const isMcq = i % 2 === 0;
-      if (isMcq) {
-        generated.push({
-          id: `ai-q-${i}-${Date.now()}`,
-          type: 'MCQ',
-          prompt: `What is a primary characteristic or fundamental concept of ${cleanTopic}?`,
-          options: [
-            `Core functional mechanism of ${cleanTopic}`,
-            `Standard control variable in ${cleanTopic}`,
-            `Inverse secondary effect of ${cleanTopic}`,
-            `External boundary condition of ${cleanTopic}`
-          ],
-          answer: `Core functional mechanism of ${cleanTopic}`,
-          explanation: `The foundational study of ${cleanTopic} focuses on its core functional mechanisms and underlying principles.`
-        });
+    const result = [];
+    for (let i = 0; i < targetCount; i++) {
+      if (i < basePool.length) {
+        result.push({ id: `ai-q-${i}-${Date.now()}`, ...basePool[i] });
       } else {
-        generated.push({
-          id: `ai-q-${i}-${Date.now()}`,
-          type: 'Fill Blank',
-          prompt: `In academic and scientific study, the key parameter governing ${cleanTopic} is identified as _______.`,
-          options: [],
-          answer: `${cleanTopic} variable`,
-          explanation: `Quantitative analysis of ${cleanTopic} requires measuring primary variables and observed outputs.`
-        });
+        const isMcq = i % 2 === 0;
+        if (isMcq) {
+          result.push({
+            id: `ai-q-${i}-${Date.now()}`,
+            type: 'MCQ',
+            prompt: `Question ${i + 1}: What is a core principle in the analysis of ${cleanTopic}?`,
+            options: [
+              `Primary interaction law of ${cleanTopic}`,
+              `Secondary variable factor in ${cleanTopic}`,
+              `Inverse boundary state of ${cleanTopic}`,
+              `External control ratio of ${cleanTopic}`
+            ],
+            answer: `Primary interaction law of ${cleanTopic}`,
+            explanation: `Analysis of ${cleanTopic} requires applying core interaction laws and key principles.`
+          });
+        } else {
+          result.push({
+            id: `ai-q-${i}-${Date.now()}`,
+            type: 'Fill Blank',
+            prompt: `Question ${i + 1}: In study of ${cleanTopic}, the primary governing factor is called _______.`,
+            options: [],
+            answer: `${cleanTopic} parameter`,
+            explanation: `Accurate analysis of ${cleanTopic} relies on identifying primary governing parameters.`
+          });
+        }
       }
     }
-    return generated;
+    return result;
   }
 
   function simulateAiQuizGeneration() {
