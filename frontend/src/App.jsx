@@ -1095,7 +1095,16 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
 
-  const updateForm = e => setForm(c => ({ ...c, [e.target.name]: e.target.value }));
+  const updateForm = e => {
+    const { name, value } = e.target;
+    setForm(c => ({ ...c, [name]: value }));
+
+    if (name === 'questionCount') {
+      const targetCount = Math.max(1, Math.min(30, Number(value) || 5));
+      const currentTopic = form.topic || 'science';
+      setQuestions(generateTopicQuestions(currentTopic, targetCount));
+    }
+  };
   const updateQuestion = (id, key, value) => setQuestions(c => c.map(q => q.id === id ? { ...q, [key]: value } : q));
   const updateMCQOption = (qId, optIdx, val) => setQuestions(c => c.map(q => {
     if (q.id !== qId) return q;

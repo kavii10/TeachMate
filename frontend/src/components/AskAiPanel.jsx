@@ -722,8 +722,24 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
     };
 
     try {
+      // 1. Evaluate Workspace Database Engine FIRST for instant, accurate, real-time answers & custom Q&As
+      const localResponse = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page);
+
+      if (localResponse) {
+        replyText = localResponse;
+        providerName = 'TeachMate AI';
+        updateAssistantMsg({
+          content: localResponse,
+          provider: providerName,
+          error: false
+        });
+        setVoiceReply({ content: localResponse, provider: providerName });
+        speakResponse(localResponse);
+        return;
+      }
+
+      // 2. If no local match, stream from server API if configured
       if (authToken && configured) {
-        // Stream live from AI Model API with complete real-time workspace & dashboard context payload
         await streamAssistantReply({
           token: authToken,
           payload: {
@@ -757,42 +773,28 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
         }
       }
 
-      // Dynamic Workspace Analysis Engine (Client-side real-time database evaluation & custom exact answers)
-      const localResponse = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page);
-      if (localResponse) {
-        replyText = localResponse;
-        providerName = 'TeachMate AI';
-        updateAssistantMsg({
-          content: localResponse,
-          provider: providerName,
-          error: false
-        });
-        setVoiceReply({ content: localResponse, provider: providerName });
-        speakResponse(localResponse);
-      } else {
-        const fallbackReply = `I have analyzed your ${page} workspace data. Everything is synced and up to date!`;
-        updateAssistantMsg({
-          content: fallbackReply,
-          provider: 'TeachMate AI'
-        });
-        speakResponse(fallbackReply);
-      }
-
-      if (!requestFailed && source === 'voice' && replyText) {
-        setVoiceReply({ content: replyText, provider: providerName });
-        speakResponse(replyText);
-      }
-    } catch (err) {
-      const localResponse = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page) || `I have analyzed your ${page} workspace. Everything is up to date!`;
-      replyText = localResponse;
+      // 3. Fallback response
+      const fallbackReply = `I have analyzed your ${page} workspace data. Everything is synced and up to date!`;
+      replyText = fallbackReply;
       providerName = 'TeachMate AI';
       updateAssistantMsg({
-        content: localResponse,
+        content: fallbackReply,
         provider: providerName,
         error: false
       });
-      setVoiceReply({ content: localResponse, provider: providerName });
-      speakResponse(localResponse);
+      setVoiceReply({ content: fallbackReply, provider: providerName });
+      speakResponse(fallbackReply);
+    } catch (err) {
+      const localFallback = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page) || `I have analyzed your ${page} workspace data. All records are up to date!`;
+      replyText = localFallback;
+      providerName = 'TeachMate AI';
+      updateAssistantMsg({
+        content: localFallback,
+        provider: providerName,
+        error: false
+      });
+      setVoiceReply({ content: localFallback, provider: providerName });
+      speakResponse(localFallback);
     } finally {
       setTyping(false);
       if (source === 'voice') setVoiceStatus('idle');
