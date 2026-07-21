@@ -292,43 +292,49 @@ async function trustedAssistantContext(req) {
 
   return {
     role: 'school_admin',
-    school: {
-      teachersCount: teachers.count ?? 0,
-      studentsCount: students.count ?? 0,
-      classesCount: classes.count ?? 0,
-      announcementsCount: announcements.count ?? 0
-    },
-    unavailableData: warnings
+    const enrollments = await optionalData('enrollments', supabaseAdmin.from('class_students').select('class_id, classes(id, name, subject, grade)').eq('student_id', req.auth.user.id));
+    const classes = enrollments.map(e => e.classes).filter(Boolean);
+    const classIds = classes.map(c => c.id);
+
+    return {
+      role,
+      user: { id: req.auth.user.id, fullName: req.auth.profile.full_name, email: req.auth.profile.email, schoolId },
+      classes,
+      homework: classIds.length > 0 ? withRecordedHomeworkActivity(await optionalData('homework', supabaseAdmin.from('homework').select('id, class_id, title, instructions, status, due_at, created_at').in('class_id', classIds)), req.auth.user.id) : [],
+      assessments: classIds.length > 0 ? withRecordedAssessmentMarks(await optionalData('assessments', supabaseAdmin.from('assessments').select('id, class_id, title, instructions, status, total_marks, due_at, created_at').in('class_id', classIds)), req.auth.user.id) : []
+    };
+  }
+
+  const schools = await optionalData('school', supabaseAdmin.from('schools').select('*').eq('id', schoolId));
+  return {
+    role,
+    user: { id: req.auth.user.id, fullName: req.auth.profile.full_name, email: req.auth.profile.email, schoolId },
+    school: schools[0] ?? null
   };
 }
 
 router.post('/assistant/stream', async (req, res, next) => {
   try {
     const input = assistantRequestSchema.parse(req.body);
-    const context = await trustedAssistantContext(req);
-    const roleName = context.role === 'school_admin' ? 'school administrator' : context.role;
+    const dbContext = await trustedAssistantContext(req);
+    const liveContext = input.workspaceContext ? { ...dbContext, ...input.workspaceContext } : dbContext;
+    const roleName = liveContext.role === 'school_admin' ? 'school administrator' : liveContext.role;
 
-    const systemPrompt = `You are Ask AI, TeachMate's private ${roleName} workspace assistant.
-Your job is to answer user questions directly, concisely, and precisely based on the verified workspace context.
+    const systemPrompt = `You are Ask AI, TeachMate's real-time intelligent workspace AI assistant for ${roleName}.
+Your job is to analyze the user's question alongside their live classroom database & dashboard data and provide a fresh, precise, real-time answer.
+
 STRICT RULES:
-- Never output generic template disclaimers or boilerplate headers (do NOT say "Here is the verified data regarding", "User Role:", "Active Scope:", "Workspace Summary:", or "Direct Insight:").
-- Match the exact question intent:
-  * When asked "what homework I give" or "what homework did I assign", list the assigned homework titles, subjects, and due dates directly. Do NOT output a full completion report unless specifically asked.
-  * When asked "how many students completed..." or "who submitted", calculate exact submission counts and percentages.
-  * When asked "I publish any resources", answer directly with the exact published resource titles and counts.
-    - Use only facts present in the verified workspace data context. Never invent a score, attendance value, submission, resource, date, student, or percentage.
-    - If the requested record is absent, unavailable, or not authorized for this user, say that it is not recorded in the available workspace data; do not fill the gap with a generic answer.
-    - Calculate exact student counts, completion percentages, resources, grades, and attendance only when the underlying records are present. State the denominator used for any percentage.
-    - Treat the Active Class Context as the user's current page scope. When a question is about "this class" or "today", do not mix in records from a different class.
-- Handle user typos gracefully (e.g. "cement" -> "assignment / assessment").
-- Respect role permissions (Teachers view their class data; Students view their own work; Admins view school overview).
-- When asked for MCQs or worksheets, format them cleanly with Markdown.`;
+- Never output generic template disclaimers or boilerplate headers (do NOT say "Here is the verified data regarding", "User Role:", "Active Scope:", or "Workspace Summary:").
+- Analyze the provided live workspace database context dynamically to answer questions about students, homework, quizzes, submissions, attendance, marks, feedback, and resources.
+- State exact counts, names, scores, and percentages calculated directly from the live database context.
+- If asked custom questions or schedule/agenda questions, answer naturally, directly, and accurately.
+- Do NOT fabricate or estimate data if it is not in the context; state clearly what is recorded.`;
 
-    const fullPrompt = `Verified Workspace Context: ${JSON.stringify(context)}
+    const fullPrompt = `Live Workspace Database Context: ${JSON.stringify(liveContext)}
 Current Page / Tab: ${input.page}
 Active Class Context: ${JSON.stringify(input.classContext ?? null)}
 Recent Chat History: ${JSON.stringify(input.history)}
-User Request: ${input.message}`;
+User Question: ${input.message}`;
 
     res.status(200);
     res.set({
@@ -339,8 +345,7 @@ User Request: ${input.message}`;
     });
     res.flushHeaders?.();
 
-    // Initial status event
-    res.write(`event: status\ndata: ${JSON.stringify({ message: 'Thinking with your authorized workspace data…' })}\n\n`);
+    res.write(`event: status\ndata: ${JSON.stringify({ message: 'Analyzing live classroom database…' })}\n\n`);
 
     const output = await generateAssistantReply({
       schoolId: req.auth.profile.school_id,
@@ -349,18 +354,15 @@ User Request: ${input.message}`;
       prompt: fullPrompt
     });
 
-    // Fallback notice event if primary provider failed
     if (output.attempted && output.attempted.length > 0) {
       res.write(`event: fallback\ndata: ${JSON.stringify({ message: 'Switched to backup AI provider.' })}\n\n`);
     }
 
-    // Provider identifier event
     const providerDisplayName = output.provider
       ? output.provider.charAt(0).toUpperCase() + output.provider.slice(1)
       : 'TeachMate AI';
     res.write(`event: provider\ndata: ${JSON.stringify({ provider: providerDisplayName })}\n\n`);
 
-    // Stream text chunks
     const chunks = output.text.match(/.{1,90}(?:\s|$)|.{1,90}/g) ?? [output.text];
     for (const chunk of chunks) {
       res.write(`event: delta\ndata: ${JSON.stringify({ text: chunk })}\n\n`);
@@ -377,82 +379,29 @@ User Request: ${input.message}`;
   }
 });
 
-// Generator endpoints
-const questionSchema = z.object({
-  question: z.string().min(1),
-  marks: z.number().positive(),
-  bloomLevel: z.enum(['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create']),
-  answerKey: z.string().min(1)
-});
-
-const testResponseSchema = z.object({
-  title: z.string().min(1),
-  instructions: z.string().min(1),
-  totalMarks: z.number().positive(),
-  questions: z.array(questionSchema).min(1)
-});
-
-const testRequestSchema = z.object({
-  subject: z.string().min(2).max(100),
-  chapter: z.string().min(2).max(200),
-  grade: z.string().min(1).max(30),
-  totalMarks: z.number().int().min(1).max(200),
-  difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
-  questionTypes: z.array(z.enum(['mcq', 'short_answer', 'long_answer', 'case_study', 'programming'])).min(1).max(5)
-});
-
-const teacherSystem = `You are TeachMate, an AI co-teacher. You assist teachers but never replace their judgement. Produce a reviewable draft only; do not claim to have graded, assigned work, contacted students, or made academic decisions.`;
-
-router.post('/test-generator', requireRole('teacher', 'school_admin'), async (req, res, next) => {
-  try {
-    const input = testRequestSchema.parse(req.body);
-    const prompt = `Create a ${input.difficulty} ${input.subject} assessment for ${input.grade}, chapter: ${input.chapter}. Total marks must equal ${input.totalMarks}. Use only: ${input.questionTypes.join(', ')}. Map every question to Bloom's Taxonomy and include a concise answer key. This is a draft for teacher review.`;
-    const output = await generateStructured({
-      schoolId: req.auth.profile.school_id,
-      userId: req.auth.user.id,
-      purpose: 'test_generation',
-      system: teacherSystem,
-      prompt,
-      schema: { type: 'object' },
-      validate: testResponseSchema
-    });
-    if (output.result.totalMarks !== input.totalMarks) {
-      return res.status(422).json({ error: 'The draft did not preserve the requested total marks. Please try again.' });
-    }
-    res.status(200).json({ draft: output.result, meta: { provider: output.provider, attemptedFallbacks: output.attempted } });
-  } catch (error) {
-    next(error);
-  }
-});
-
-const quizRequestSchema = z.object({
-  topic: z.string().min(2).max(200),
-  difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']),
-  questionCount: z.number().int().min(1).max(30)
-});
-
-const quizQuestionSchema = z.object({
-  type: z.enum(['MCQ', 'Fill Blank']),
-  prompt: z.string().min(1),
-  options: z.array(z.string()).optional(),
-  answer: z.string().min(1),
-  explanation: z.string().min(1)
-});
-
-const quizResponseSchema = z.object({
-  title: z.string().min(1),
-  questions: z.array(quizQuestionSchema).min(1)
-});
-
 router.post('/quiz-generator', requireRole('teacher', 'school_admin'), async (req, res, next) => {
   try {
     const input = quizRequestSchema.parse(req.body);
-    const prompt = `Create a practice quiz titled appropriately about "${input.topic}" with ${input.questionCount} questions. Difficulty level: ${input.difficulty}. Generate a mix of MCQ and Fill Blank questions. Include explanation for each answer.`;
+    const systemPrompt = `You are an expert curriculum author and master educator for TeachMate.
+Generate a highly accurate, subject-specific practice quiz on the topic "${input.topic}".
+STRICT INSTRUCTIONS:
+- Every single question MUST directly test core concepts, definitions, formulas, or facts specifically about "${input.topic}".
+- Never use generic placeholder templates (do NOT generate questions like "Which of the following describes the principle of topic?").
+- For MCQ questions: provide exactly 4 distinct, plausible option choices (A, B, C, D) with 1 clear correct answer.
+- For Fill Blank questions: leave options as empty array [] and set answer to the exact missing term.
+- Include a concise, educational explanation for why the answer is correct.`;
+
+    const prompt = `Topic: "${input.topic}"
+Difficulty: ${input.difficulty}
+Question Count: ${input.questionCount}
+
+Create a practice quiz titled appropriately for "${input.topic}" with ${input.questionCount} questions.`;
+
     const output = await generateStructured({
       schoolId: req.auth.profile.school_id,
       userId: req.auth.user.id,
       purpose: 'quiz_generation',
-      system: teacherSystem,
+      system: systemPrompt,
       prompt,
       schema: { type: 'object' },
       validate: quizResponseSchema

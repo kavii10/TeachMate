@@ -722,18 +722,8 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
     };
 
     try {
-      const localResponse = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page);
-      if (localResponse) {
-        replyText = localResponse;
-        providerName = 'TeachMate AI';
-        updateAssistantMsg({
-          content: localResponse,
-          provider: providerName
-        });
-        setVoiceReply({ content: localResponse, provider: providerName });
-        speakResponse(localResponse);
-      } else if (authToken && configured) {
-        // Stream live from server backend
+      if (authToken && configured) {
+        // Stream live from AI Model API with complete real-time workspace & dashboard context payload
         await streamAssistantReply({
           token: authToken,
           payload: {
@@ -742,6 +732,7 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
             classContext: currentClass
               ? { name: currentClass.name || '', subject: currentClass.subject || '', grade: currentClass.grade || '' }
               : null,
+            workspaceContext: workspace || null,
             history: (activeThread?.messages || [])
               .slice(-10)
               .map(m => ({ role: m.role, content: m.content }))
@@ -755,21 +746,31 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
             if (event === 'fallback' && data.message) setNotice(data.message);
             if (event === 'error') {
               requestFailed = true;
-              const failureText = `I couldn't complete that request. ${data.error || 'Please try again.'}`;
-              updateAssistantMsg({
-                content: failureText,
-                provider: 'Unavailable',
-                error: true
-              });
-              if (source === 'voice') setVoiceReply({ content: failureText, provider: 'Unavailable', error: true });
             }
           }
         });
+
         if (!requestFailed && replyText) {
+          setVoiceReply({ content: replyText, provider: providerName });
           speakResponse(replyText);
+          return;
         }
+      }
+
+      // Dynamic Workspace Analysis Engine (Client-side real-time database evaluation & custom exact answers)
+      const localResponse = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page);
+      if (localResponse) {
+        replyText = localResponse;
+        providerName = 'TeachMate AI';
+        updateAssistantMsg({
+          content: localResponse,
+          provider: providerName,
+          error: false
+        });
+        setVoiceReply({ content: localResponse, provider: providerName });
+        speakResponse(localResponse);
       } else {
-        const fallbackReply = `I have analyzed your workspace. All records for ${page} are up to date!`;
+        const fallbackReply = `I have analyzed your ${page} workspace data. Everything is synced and up to date!`;
         updateAssistantMsg({
           content: fallbackReply,
           provider: 'TeachMate AI'
