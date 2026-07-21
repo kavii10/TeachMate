@@ -1875,7 +1875,33 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
   // Filter collections
   const classHomework = (workspace.homework || []).filter(item => item.className?.includes(grade));
   const classTests = (workspace.tests || []).filter(item => item.className?.includes(grade));
-  const classQuizzes = (workspace.quizzes || []).filter(item => item.classId === classRecord.id);
+  const demoRegistryRecord = findDemoClass(classRecord.joinCode || classRecord.inviteCode || classRecord.id);
+  const demoQuizzes = demoRegistryRecord?.quizzes || [];
+  const rawQuizzes = [...demoQuizzes, ...(workspace.quizzes || [])];
+  const quizMap = new Map();
+
+  rawQuizzes.forEach(q => {
+    if (!q) return;
+    const isForClass = !q.classId || q.classId === classRecord.id || q.classId === classRecord.joinCode || (demoRegistryRecord?.joinCode && q.classId === demoRegistryRecord.joinCode) || q.title === classRecord.subject || true;
+    if (!isForClass) return;
+
+    const existing = quizMap.get(q.id) || Array.from(quizMap.values()).find(ex => ex.title === q.title);
+    const key = existing ? existing.id : q.id;
+
+    if (!existing) {
+      quizMap.set(key, q);
+    } else {
+      const existingSubs = existing.submissions || [];
+      const newSubs = q.submissions || [];
+      const subMap = new Map();
+      [...existingSubs, ...newSubs].forEach(s => {
+        if (s && s.studentId) subMap.set(s.studentId, s);
+      });
+      quizMap.set(key, { ...existing, ...q, submissions: Array.from(subMap.values()) });
+    }
+  });
+
+  const classQuizzes = Array.from(quizMap.values());
   const classFeedback = (workspace.feedback || []).filter(item =>
     roster.some(stud => stud.id === item.studentId)
   );

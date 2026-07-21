@@ -260,24 +260,45 @@ export default function QuizAiAnalysisView({ quiz, roster = [], onBack, onToast,
     : studentAnalyses[0];
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      style={{ padding: '12px 4px 32px' }}
+    >
       {/* Top Header Navigation */}
-      <div className="page-heading" style={{ marginBottom: '20px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+        <button
+          type="button"
+          onClick={onBack}
+          className="button subtle"
+          style={{
+            width: 'fit-content',
+            padding: '7px 14px',
+            borderRadius: '9px',
+            fontWeight: '800',
+            background: 'var(--soft)',
+            color: '#4f46e5',
+            border: '1px solid var(--line)',
+            cursor: 'pointer',
+            fontSize: '12px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <ArrowLeft size={16} /> Back to Class Quizzes
+        </button>
+
         <div>
-          <button
-            type="button"
-            onClick={onBack}
-            className="button ghost"
-            style={{ padding: '0', height: 'auto', marginBottom: '8px', color: '#4f46e5', fontWeight: '700' }}
-          >
-            <ArrowLeft size={16} style={{ marginRight: '4px' }} /> Back to Quizzes
-          </button>
-          <div className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6366f1', fontWeight: '800', fontSize: '11px', letterSpacing: '.08em', margin: '4px 0 6px' }}>
             <Sparkles size={14} style={{ color: '#8b5cf6' }} /> AI QUIZ DIAGNOSTICS & ANALYTICS
           </div>
-          <h1>{quiz.title}</h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
-            Subject: <b>{quiz.subject || 'Science'}</b> &middot; Topic: <b>{quiz.topic}</b> &middot; {quiz.questions?.length || 0} Questions &middot; Time Limit: {quiz.timeLimit || 15} mins
+          <h1 style={{ margin: '0', font: "800 clamp(24px, 3.5vw, 32px)/1.15 'Plus Jakarta Sans', sans-serif", letterSpacing: '-1px', color: 'var(--text)' }}>
+            {quiz.title}
+          </h1>
+          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: '13px' }}>
+            Subject: <b style={{ color: 'var(--text)' }}>{quiz.subject || 'Science'}</b> &middot; Topic: <b style={{ color: 'var(--text)' }}>{quiz.topic}</b> &middot; {quiz.questions?.length || 0} Questions &middot; Time Limit: {quiz.timeLimit || 15} mins
           </p>
         </div>
       </div>

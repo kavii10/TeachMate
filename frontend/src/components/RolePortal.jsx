@@ -458,24 +458,34 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
     try {
       const targetClassCode = quiz.classId || classRecord?.joinCode || classRecord?.id;
       const demoClassRecord = (targetClassCode && findDemoClass(targetClassCode)) || (classRecord?.joinCode && findDemoClass(classRecord.joinCode));
+      const activeQuizzes = demoClassRecord?.quizzes?.length ? demoClassRecord.quizzes : (workspace.quizzes || []);
+      const quizExistsInDemo = activeQuizzes.some(q => q.id === quiz.id || q.title === quiz.title);
+      
+      const updatedQuizzes = quizExistsInDemo
+        ? activeQuizzes.map(q => {
+            if (q.id !== quiz.id && q.title !== quiz.title) return q;
+            const others = (q.submissions || []).filter(s => s.studentId !== studentId);
+            return { ...q, submissions: [...others, submissionRecord] };
+          })
+        : [...activeQuizzes, { ...quiz, submissions: [submissionRecord] }];
+
       if (demoClassRecord) {
-        const updatedQuizzes = (demoClassRecord.quizzes || workspace.quizzes || []).map(q => {
-          if (q.id !== quiz.id) return q;
-          const others = (q.submissions || []).filter(s => s.studentId !== studentId);
-          return { ...q, submissions: [...others, submissionRecord] };
-        });
         registerDemoClass({ ...demoClassRecord, quizzes: updatedQuizzes });
+      } else if (classRecord?.joinCode) {
+        registerDemoClass({ ...classRecord, quizzes: updatedQuizzes });
       }
 
+      // Sync across all localStorage accounts matching teachmate:demo
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith('teachmate_account_')) {
+        if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
           const raw = localStorage.getItem(key);
-          if (raw && (raw.includes('"Teacher"') || raw.includes('"teacher"'))) {
+          if (raw && (raw.includes('"Teacher"') || raw.includes('"teacher"') || key.includes(':teacher'))) {
             const parsed = JSON.parse(raw);
             if (parsed) {
-              const teacherQuizzes = (parsed.quizzes || []).map(q => {
-                if (q.id !== quiz.id) return q;
+              const currentQs = parsed.quizzes?.length ? parsed.quizzes : updatedQuizzes;
+              const teacherQuizzes = currentQs.map(q => {
+                if (q.id !== quiz.id && q.title !== quiz.title) return q;
                 const others = (q.submissions || []).filter(s => s.studentId !== studentId);
                 return { ...q, submissions: [...others, submissionRecord] };
               });
