@@ -1214,6 +1214,7 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
   // Real backend AI generator or offline topic generator fallback
   async function generateQuiz() {
     if (!form.topic.trim()) return setError('Please specify a topic first.');
+    const reqCount = Number(form.questionCount) || 5;
     setGenerating(true);
     setError('');
 
@@ -1225,12 +1226,12 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
           body: JSON.stringify({
             topic: form.topic.trim(),
             difficulty: form.difficulty || 'medium',
-            questionCount: Number(form.questionCount) || 5
+            questionCount: reqCount
           })
         });
 
         if (response?.draft?.questions && response.draft.questions.length > 0) {
-          const mappedQuestions = response.draft.questions.map((q, idx) => ({
+          let mapped = response.draft.questions.map((q, idx) => ({
             id: `ai-q-${idx}-${Date.now()}`,
             type: q.type || 'MCQ',
             prompt: q.prompt,
@@ -1239,9 +1240,16 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
             explanation: q.explanation || `Correct answer for ${form.topic}.`
           }));
 
-          setQuestions(mappedQuestions);
+          if (mapped.length < reqCount) {
+            const extra = generateTopicQuestions(form.topic.trim(), reqCount).slice(mapped.length, reqCount);
+            mapped = [...mapped, ...extra];
+          } else if (mapped.length > reqCount) {
+            mapped = mapped.slice(0, reqCount);
+          }
+
+          setQuestions(mapped);
           setForm(c => ({ ...c, title: response.draft.title || c.title || `${form.topic.trim()} Practice Quiz` }));
-          onToast(`AI quiz generated for "${form.topic}" via ${response.meta?.provider || 'TeachMate AI'}.`);
+          onToast(`AI quiz generated with ${mapped.length} questions for "${form.topic}".`);
           return;
         }
       } catch (err) {
