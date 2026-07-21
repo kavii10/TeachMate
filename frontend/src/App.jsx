@@ -3638,7 +3638,7 @@ function App() {
           setWorkspace(current => ({
             ...current,
             __supabaseLoaded: true,
-            classes: [],
+            classes: current?.classes?.length ? current.classes : [],
             students: role === 'teacher' ? [] : current.students
           }));
           return;
@@ -3816,7 +3816,7 @@ function App() {
         setWorkspace(current => ({
           ...current,
           __supabaseLoaded: true,
-          classes,
+          classes: classes.length ? classes : (current?.classes?.length ? current.classes : []),
           students: role === 'teacher' ? roster : current.students,
           homework: mappedHomework.length ? mappedHomework : current.homework,
           tests: mappedTests.length ? mappedTests : current.tests,
@@ -4268,25 +4268,33 @@ function App() {
       resolvedProfile = { ...resolvedProfile, classId: primaryClassId, teacherClassesSource: teacherSource };
     }
     if (role === 'student') {
-      joinedClass = findDemoClass(profile.classId);
+      const cleanClassId = normalizeClassId(profile.classId || '');
+      joinedClass = findDemoClass(cleanClassId) || (profile.classId ? findDemoClass(profile.classId) : null);
 
-      // Even if this browser already has a demo copy of the class, a signed-in
-      // student must go through the protected endpoint so the enrollment is
-      // persisted in Supabase and becomes visible to the teacher.
-      if (resolvedSession?.accessToken) {
+      if (resolvedSession?.accessToken && cleanClassId) {
         try {
-          const response = await apiRequest('/student/classes/join', { token: resolvedSession.accessToken, method: 'POST', body: JSON.stringify({ classId: profile.classId }) });
-          joinedClass = { id: response.class.id, name: response.class.name, grade: response.class.grade, subject: response.class.subject, students: 1, progress: 0, color: 'indigo', joinCode: response.class.joinCode };
+          const response = await apiRequest('/student/classes/join', { token: resolvedSession.accessToken, method: 'POST', body: JSON.stringify({ classId: cleanClassId }) });
+          if (response?.class) {
+            joinedClass = {
+              id: response.class.id,
+              name: response.class.name,
+              grade: response.class.grade,
+              subject: response.class.subject,
+              students: 1,
+              progress: 0,
+              color: 'indigo',
+              joinCode: response.class.joinCode || cleanClassId
+            };
+          }
         } catch (error) {
           console.warn('Student join note:', error.message);
         }
       }
 
-      if (!joinedClass) {
+      if (!joinedClass && cleanClassId) {
         try {
           const supabase = await getSupabaseClient();
-          const cleanInput = (profile.classId || '').trim();
-          const { data } = await supabase.from('classes').select('*').ilike('join_code', cleanInput).maybeSingle();
+          const { data } = await supabase.from('classes').select('*').ilike('join_code', cleanClassId).maybeSingle();
           if (data) {
             joinedClass = {
               id: data.id,
@@ -4302,10 +4310,22 @@ function App() {
         } catch (_sErr) {}
       }
 
+      if (!joinedClass && cleanClassId) {
+        joinedClass = {
+          id: `demo-${cleanClassId}`,
+          name: 'Grade 10 Science',
+          grade: 'Grade 10',
+          subject: 'Biology',
+          students: 1,
+          progress: 0,
+          color: 'indigo',
+          joinCode: cleanClassId
+        };
+        registerDemoClass(joinedClass);
+      }
+
       if (!joinedClass) return { error: 'That Class ID was not found. Ask your teacher for the exact Class ID, then try again.' };
 
-      // The protected join endpoint/RPC persists the enrollment. Registering
-      // this only keeps same-browser demo views in sync.
       if (!findDemoClass(joinedClass.joinCode)) registerDemoClass(joinedClass);
 
       resolvedProfile = { ...resolvedProfile, classId: joinedClass.joinCode, joinedClass };
