@@ -50,8 +50,11 @@ export async function authenticate(req, res, next) {
     .eq('status', 'active')
     .maybeSingle();
 
-  const userMembership = membership || { school_id: 's1', role: 'teacher' };
-  req.auth.profile = { ...req.auth.profile, ...userMembership };
+  if (membership) {
+    req.auth.profile = { ...req.auth.profile, ...membership };
+  } else {
+    req.auth.profile = { ...req.auth.profile, school_id: 's1' };
+  }
   next();
 }
 

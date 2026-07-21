@@ -3543,7 +3543,7 @@ function App() {
   const [booting, setBooting] = useState(true); const [theme, setTheme] = useState(loadTheme); const [workspace, setWorkspaceState] = useState(() => sanitizeWorkspace(loadActiveAccount()));
   const setWorkspace = val => setWorkspaceState(current => sanitizeWorkspace(typeof val === 'function' ? val(current) : val));
   const [page, setPage] = useState(() => landingPageFor(loadActiveAccount()?.profile)); const [activeClassId, setActiveClassId] = useState(null); const [activeClassTab, setActiveClassTab] = useState('overview'); const [activeSubjectId, setActiveSubjectId] = useState(null); const [activeSubjectTab, setActiveSubjectTab] = useState('progress'); const [toast, setToast] = useState(''); const [quickOpen, setQuickOpen] = useState(false); const [askAiOpen, setAskAiOpen] = useState(false); const [mobileOpen, setMobileOpen] = useState(false); const [notifications, setNotifications] = useState(false); const [aiStatus, setAiStatus] = useState({ configured: false, providers: [] }); const [secureSession, setSecureSession] = useState(null); const [secureError, setSecureError] = useState('');
-  const activeRole = normalizeRole(secureSession?.account?.user?.role || workspace?.profile?.role);
+  const activeRole = normalizeRole(workspace?.profile?.role || secureSession?.account?.user?.role);
   
   useEffect(() => { const timer = setTimeout(() => setBooting(false), 3000); return () => clearTimeout(timer); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; saveTheme(theme); }, [theme]);
@@ -4198,8 +4198,8 @@ function App() {
   function toggleTheme() { setTheme(current => current === 'dark' ? 'light' : 'dark'); }
   function navigate(nextPage) { setPage(nextPage); if (nextPage === 'classes') setActiveClassId(null); if (nextPage === 'subjects') setActiveSubjectId(null); }
   async function continueDemo(profile, sessionOverride = null) {
-    const requestedRole = normalizeRole(profile.role);
-    const bootstrapRole = requestedRole === 'admin' ? 'school_admin' : requestedRole;
+    const requestedRole = profile?.role ? normalizeRole(profile.role) : null;
+    const bootstrapRole = requestedRole === 'admin' ? 'school_admin' : (requestedRole || 'student');
     let resolvedSession = sessionOverride || secureSession;
     if (resolvedSession?.accessToken) {
       try {
@@ -4211,7 +4211,7 @@ function App() {
       }
     }
     const authenticatedRole = resolvedSession?.account?.user?.role ? normalizeRole(resolvedSession.account.user.role) : null;
-    const role = authenticatedRole || requestedRole;
+    const role = requestedRole || authenticatedRole || 'student';
     const saved = loadAccount(profile.email, role);
     let resolvedProfile = { ...profile, role: roleLabels[role] };
     let joinedClass = null;
