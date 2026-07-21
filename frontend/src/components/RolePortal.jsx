@@ -453,6 +453,38 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
         return { ...q, submissions: [...others, submissionRecord] };
       })
     }));
+
+    // Synchronize submission to shared Demo Class Registry and saved teacher accounts
+    try {
+      const targetClassCode = quiz.classId || classRecord?.joinCode || classRecord?.id;
+      const demoClassRecord = (targetClassCode && findDemoClass(targetClassCode)) || (classRecord?.joinCode && findDemoClass(classRecord.joinCode));
+      if (demoClassRecord) {
+        const updatedQuizzes = (demoClassRecord.quizzes || workspace.quizzes || []).map(q => {
+          if (q.id !== quiz.id) return q;
+          const others = (q.submissions || []).filter(s => s.studentId !== studentId);
+          return { ...q, submissions: [...others, submissionRecord] };
+        });
+        registerDemoClass({ ...demoClassRecord, quizzes: updatedQuizzes });
+      }
+
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('teachmate_account_')) {
+          const raw = localStorage.getItem(key);
+          if (raw && (raw.includes('"Teacher"') || raw.includes('"teacher"'))) {
+            const parsed = JSON.parse(raw);
+            if (parsed) {
+              const teacherQuizzes = (parsed.quizzes || []).map(q => {
+                if (q.id !== quiz.id) return q;
+                const others = (q.submissions || []).filter(s => s.studentId !== studentId);
+                return { ...q, submissions: [...others, submissionRecord] };
+              });
+              localStorage.setItem(key, JSON.stringify({ ...parsed, quizzes: teacherQuizzes }));
+            }
+          }
+        }
+      }
+    } catch (_err) {}
   }
 
   return (
@@ -593,19 +625,42 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
                   {activeQuizId === quiz.id && !mySub && (
                     <div style={{ marginTop: '14px', padding: '14px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--line)' }}>
                       {quiz.questions?.map((q, idx) => (
-                        <div key={idx} style={{ marginBottom: '12px' }}>
-                          <p style={{ fontWeight: 700, margin: '0 0 6px', fontSize: '12px' }}>{idx + 1}. {q.prompt}</p>
-                          {q.options?.map((opt, oIdx) => (
-                            <label key={oIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', margin: '4px 0' }}>
+                        <div key={idx} style={{ marginBottom: '14px' }}>
+                          <p style={{ fontWeight: 700, margin: '0 0 6px', fontSize: '12px', color: 'var(--text)' }}>
+                            {idx + 1}. {q.prompt}
+                          </p>
+                          {(!q.options || q.options.length === 0) ? (
+                            <div style={{ marginTop: '6px' }}>
                               <input
-                                type="radio"
-                                name={`q-${idx}`}
-                                checked={quizAnswers[idx] === opt}
-                                onChange={() => setQuizAnswers(prev => ({ ...prev, [idx]: opt }))}
+                                type="text"
+                                placeholder="Type your answer here..."
+                                value={quizAnswers[idx] || ''}
+                                onChange={e => setQuizAnswers(prev => ({ ...prev, [idx]: e.target.value }))}
+                                style={{
+                                  width: '100%',
+                                  maxWidth: '420px',
+                                  padding: '8px 12px',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--line)',
+                                  background: 'var(--input)',
+                                  color: 'var(--text)',
+                                  fontSize: '12px'
+                                }}
                               />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
+                            </div>
+                          ) : (
+                            q.options.map((opt, oIdx) => (
+                              <label key={oIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', margin: '4px 0', cursor: 'pointer' }}>
+                                <input
+                                  type="radio"
+                                  name={`quiz-${quiz.id}-q-${idx}`}
+                                  checked={quizAnswers[idx] === opt}
+                                  onChange={() => setQuizAnswers(prev => ({ ...prev, [idx]: opt }))}
+                                />
+                                <span>{opt}</span>
+                              </label>
+                            ))
+                          )}
                         </div>
                       ))}
                       <button className="button primary" style={{ marginTop: '10px' }} onClick={() => submitQuiz(quiz)}>Submit Answers</button>

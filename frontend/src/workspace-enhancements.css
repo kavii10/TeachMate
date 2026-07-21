@@ -68,3 +68,93 @@
    one focused roster at a time. */
 .admin-student-class-card{border:1px solid var(--line);background:var(--surface);color:var(--text);text-align:left;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.admin-student-class-card:hover{border-color:#a5b4fc;transform:translateY(-3px);box-shadow:0 18px 36px rgba(30,41,59,.1)}.admin-student-open{margin-top:5px;color:#4f46e5;font-size:11px;font-weight:800}.admin-student-back{display:inline-flex;align-items:center;margin:-5px 0 18px;padding:0;border:0;background:transparent;color:var(--muted);font-size:12px;font-weight:800}.admin-student-back:hover{color:#4f46e5}.admin-readonly-profile input{cursor:default;opacity:.82}.admin-portal[data-admin-page="schools"] .admin-metrics{margin-top:24px}
 .admin-class-student-total{display:flex;align-items:center;justify-content:space-between;margin-top:2px;padding-top:11px;border-top:1px solid var(--line)}.admin-class-student-total span{color:var(--muted);font-size:10px;font-weight:700}.admin-class-student-total b{color:#4f46e5;font:800 19px/1 'Plus Jakarta Sans',sans-serif}.admin-class-student-preview{display:grid;gap:6px}.admin-class-student-preview>span{color:var(--muted);font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}.admin-class-student-preview>div{display:flex;flex-wrap:wrap;gap:5px}.admin-class-student-preview small{padding:4px 6px;border-radius:6px;background:var(--soft);color:var(--text);font-size:9px}.admin-class-students-button{justify-content:center;width:100%;margin-top:2px}
+
+/* Mobile Phone Responsiveness Enhancements (screens <= 768px & <= 480px) */
+@media (max-width: 768px) {
+  .topbar {
+    height: 64px;
+    padding: 0 14px;
+  }
+  .topbar h2 {
+    font-size: 14px;
+  }
+  .page {
+    padding: 16px 12px 32px;
+  }
+  .page-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .page-heading h1 {
+    font-size: 24px;
+  }
+  .role-subject-grid,
+  .class-grid,
+  .metric-grid,
+  .quiz-summary-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .workspace-detail-grid,
+  .analytics-visual-grid,
+  .insights-summary {
+    grid-template-columns: 1fr !important;
+  }
+  .card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+  .modal-backdrop {
+    padding: 10px;
+  }
+  .quick-modal,
+  .quiz-builder-modal {
+    width: 96vw;
+    padding: 16px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+  }
+  .table-wrap table {
+    min-width: 520px;
+  }
+  .class-workspace-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 18px;
+    gap: 12px;
+  }
+  .workspace-hero-actions {
+    width: 100%;
+  }
+  .workspace-hero-actions .button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar-actions {
+    gap: 6px;
+  }
+  .button {
+    padding: 0 10px;
+    font-size: 12px;
+    height: 36px;
+  }
+  .onboarding-card {
+    padding: 20px 14px;
+  }
+  .onboarding-card h1 {
+    font-size: 24px;
+  }
+  .form-grid,
+  .role-select,
+  .quiz-mode-toggle {
+    grid-template-columns: 1fr;
+  }
+}
