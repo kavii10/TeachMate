@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { findDemoClass } from '../lib/storage.js';
 import {
   Sparkles,
   BarChart3,
@@ -252,7 +253,41 @@ export default function QuizAiAnalysisView({ quiz, roster = [], onBack, onToast,
   const [activeTab, setActiveTab] = useState('class'); // 'class' or 'individual'
   const [selectedStudentId, setSelectedStudentId] = useState(null);
 
-  const analysis = calculateQuizAiAnalysis(quiz, roster);
+  // Dynamically resolve all student submissions across global key, demo registry, and localStorage
+  const mergedSubmissionsMap = new Map();
+  (quiz.submissions || []).forEach(s => { if (s && s.studentId) mergedSubmissionsMap.set(s.studentId, s); });
+
+  try {
+    const targetClassCode = quiz.classId || quiz.subject;
+    const demoRecord = (targetClassCode && findDemoClass(targetClassCode)) || findDemoClass(quiz.classId);
+    const registryQuiz = (demoRecord?.quizzes || []).find(q => q.id === quiz.id || q.title === quiz.title);
+    (registryQuiz?.submissions || []).forEach(s => { if (s && s.studentId) mergedSubmissionsMap.set(s.studentId, s); });
+
+    const globalSubs1 = JSON.parse(localStorage.getItem(`teachmate:submissions:${quiz.id}`) || '[]');
+    const globalSubs2 = JSON.parse(localStorage.getItem(`teachmate:submissions:${quiz.title}`) || '[]');
+    [...globalSubs1, ...globalSubs2].forEach(s => { if (s && s.studentId) mergedSubmissionsMap.set(s.studentId, s); });
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
+        const raw = localStorage.getItem(key);
+        if (raw && raw.includes('submissions')) {
+          const parsed = JSON.parse(raw);
+          const foundQ = (parsed.quizzes || []).find(q => q.id === quiz.id || q.title === quiz.title);
+          (foundQ?.submissions || []).forEach(s => {
+            if (s && s.studentId) mergedSubmissionsMap.set(s.studentId, s);
+          });
+        }
+      }
+    }
+  } catch (_e) {}
+
+  const activeQuiz = {
+    ...quiz,
+    submissions: Array.from(mergedSubmissionsMap.values())
+  };
+
+  const analysis = calculateQuizAiAnalysis(activeQuiz, roster);
   const { classLevel, studentAnalyses } = analysis;
 
   const currentStudentAnalysis = selectedStudentId

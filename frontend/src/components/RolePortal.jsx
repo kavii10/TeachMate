@@ -448,14 +448,26 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
     updateWorkspace(current => ({
       ...current,
       quizzes: (current.quizzes || []).map(q => {
-        if (q.id !== quiz.id) return q;
+        if (q.id !== quiz.id && q.title !== quiz.title) return q;
         const others = (q.submissions || []).filter(s => s.studentId !== studentId);
         return { ...q, submissions: [...others, submissionRecord] };
       })
     }));
 
-    // Synchronize submission to shared Demo Class Registry and saved teacher accounts
+    // Synchronize submission to shared Demo Class Registry, global submission key, and saved teacher accounts
     try {
+      // 1. Save to dedicated global submissions key for maximum cross-session resilience
+      const globalSubKey1 = `teachmate:submissions:${quiz.id}`;
+      const globalSubKey2 = `teachmate:submissions:${quiz.title}`;
+      [globalSubKey1, globalSubKey2].forEach(k => {
+        try {
+          const prev = JSON.parse(localStorage.getItem(k) || '[]');
+          const clean = prev.filter(s => s.studentId !== studentId);
+          localStorage.setItem(k, JSON.stringify([...clean, submissionRecord]));
+        } catch (_e) {}
+      });
+
+      // 2. Update Demo Class Registry
       const targetClassCode = quiz.classId || classRecord?.joinCode || classRecord?.id;
       const demoClassRecord = (targetClassCode && findDemoClass(targetClassCode)) || (classRecord?.joinCode && findDemoClass(classRecord.joinCode));
       const activeQuizzes = demoClassRecord?.quizzes?.length ? demoClassRecord.quizzes : (workspace.quizzes || []);
@@ -475,7 +487,7 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
         registerDemoClass({ ...classRecord, quizzes: updatedQuizzes });
       }
 
-      // Sync across all localStorage accounts matching teachmate:demo
+      // 3. Sync across all localStorage accounts matching teachmate:demo
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {

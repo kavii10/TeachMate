@@ -2695,13 +2695,15 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
   else if (tab === 'quiz') {
     if (viewingQuizStats) {
       return (
-        <QuizAiAnalysisView
-          quiz={viewingQuizStats}
-          roster={roster}
-          onBack={() => setViewingQuizStats(null)}
-          onToast={onToast}
-          updateWorkspace={updateWorkspace}
-        />
+        <div style={{ padding: '24px 32px 48px', flex: 1, minWidth: 0, overflowY: 'auto' }}>
+          <QuizAiAnalysisView
+            quiz={viewingQuizStats}
+            roster={roster}
+            onBack={() => setViewingQuizStats(null)}
+            onToast={onToast}
+            updateWorkspace={updateWorkspace}
+          />
+        </div>
       );
     }
 
