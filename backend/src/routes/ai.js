@@ -292,24 +292,13 @@ async function trustedAssistantContext(req) {
 
   return {
     role: 'school_admin',
-    const enrollments = await optionalData('enrollments', supabaseAdmin.from('class_students').select('class_id, classes(id, name, subject, grade)').eq('student_id', req.auth.user.id));
-    const classes = enrollments.map(e => e.classes).filter(Boolean);
-    const classIds = classes.map(c => c.id);
-
-    return {
-      role,
-      user: { id: req.auth.user.id, fullName: req.auth.profile.full_name, email: req.auth.profile.email, schoolId },
-      classes,
-      homework: classIds.length > 0 ? withRecordedHomeworkActivity(await optionalData('homework', supabaseAdmin.from('homework').select('id, class_id, title, instructions, status, due_at, created_at').in('class_id', classIds)), req.auth.user.id) : [],
-      assessments: classIds.length > 0 ? withRecordedAssessmentMarks(await optionalData('assessments', supabaseAdmin.from('assessments').select('id, class_id, title, instructions, status, total_marks, due_at, created_at').in('class_id', classIds)), req.auth.user.id) : []
-    };
-  }
-
-  const schools = await optionalData('school', supabaseAdmin.from('schools').select('*').eq('id', schoolId));
-  return {
-    role,
-    user: { id: req.auth.user.id, fullName: req.auth.profile.full_name, email: req.auth.profile.email, schoolId },
-    school: schools[0] ?? null
+    school: {
+      teachersCount: teachers.count ?? 0,
+      studentsCount: students.count ?? 0,
+      classesCount: classes.count ?? 0,
+      announcementsCount: announcements.count ?? 0
+    },
+    unavailableData: warnings
   };
 }
 
