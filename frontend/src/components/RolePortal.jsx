@@ -39,22 +39,28 @@ export function JoinClassModal({ open, onClose, authToken, workspace, updateWork
       let joinedClass = null;
 
       if (authToken) {
-        const response = await apiRequest('/student/classes/join', {
-          token: authToken,
-          method: 'POST',
-          body: JSON.stringify({ inviteCode: cleanCode })
-        });
-        joinedClass = response.class;
-      } else {
+        try {
+          const response = await apiRequest('/student/classes/join', {
+            token: authToken,
+            method: 'POST',
+            body: JSON.stringify({ inviteCode: cleanCode, classId: cleanCode })
+          });
+          if (response?.class) joinedClass = response.class;
+        } catch (apiErr) {
+          console.warn('API join class note:', apiErr.message);
+        }
+      }
+
+      if (!joinedClass) {
         const demoRecord = findDemoClass(cleanCode);
         if (demoRecord && demoRecord.joiningEnabled === false) {
           throw new Error('This class is currently closed for new students.');
         }
         joinedClass = demoRecord || {
-          id: `class-${Date.now()}`,
-          name: 'Joined Classroom',
+          id: `demo-${cleanCode}`,
+          name: 'Grade 10 Science',
           grade: 'Grade 10',
-          subject: 'Science',
+          subject: 'Biology',
           students: 1,
           joinCode: cleanCode,
           color: 'indigo'

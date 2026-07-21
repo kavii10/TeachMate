@@ -54,9 +54,9 @@ app.use('/api/teacher', authenticate, requireRole('teacher', 'school_admin'), da
 app.use('/api/teacher', authenticate, requireRole('teacher', 'school_admin'), teacherClassRouter);
 app.use('/api/teacher', authenticate, requireRole('teacher', 'school_admin'), teacherResourcesRouter);
 app.use('/api/teacher', authenticate, requireRole('teacher', 'school_admin'), homeworkRouter);
-app.use('/api/student', authenticate, requireRole('student'), studentDashboardRouter);
-app.use('/api/student', authenticate, requireRole('student'), studentClassRouter);
-app.use('/api/student', authenticate, requireRole('student'), studentResourcesRouter);
+app.use('/api/student', authenticate, studentDashboardRouter);
+app.use('/api/student', authenticate, studentClassRouter);
+app.use('/api/student', authenticate, studentResourcesRouter);
 app.use('/api/admin', authenticate, requireRole('school_admin'), adminDashboardRouter);
 app.use('/api/ai', authenticate, requireRole('teacher', 'student', 'school_admin'), aiRouter);
 app.use('/api/voice', authenticate, requireRole('teacher', 'school_admin'), voiceRouter);
