@@ -323,6 +323,7 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizScore, setQuizScore] = useState(null);
   const [quizAnalysis, setQuizAnalysis] = useState('');
+  const [viewStudentAnalysisId, setViewStudentAnalysisId] = useState(null);
 
   const [messageText, setMessageText] = useState('');
   const [playingFeedbackId, setPlayingFeedbackId] = useState(null);
@@ -638,11 +639,108 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
                       <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--muted)' }}>{quiz.questions?.length || 0} Questions</p>
                     </div>
                     {mySub ? (
-                      <span className="badge success">Score: {mySub.score}%</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span className="badge success" style={{ padding: '6px 10px', fontSize: '11px', fontWeight: 800 }}>
+                          Score: {mySub.score}% ({mySub.correctCount || 0}/{quiz.questions?.length || 0})
+                        </span>
+                        <button
+                          type="button"
+                          className="button subtle"
+                          style={{
+                            borderRadius: '8px',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            background: '#eef2ff',
+                            color: '#4f46e5',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '6px 12px'
+                          }}
+                          onClick={() => setViewStudentAnalysisId(viewStudentAnalysisId === quiz.id ? null : quiz.id)}
+                        >
+                          <Sparkles size={14} style={{ color: '#8b5cf6' }} />
+                          {viewStudentAnalysisId === quiz.id ? 'Hide Analysis' : 'AI Analysis & Mistakes'}
+                        </button>
+                      </div>
                     ) : (
                       <button className="button primary" onClick={() => setActiveQuizId(quiz.id)}>Take Quiz</button>
                     )}
                   </div>
+
+                  {/* Student AI Quiz Analysis & Mistakes Breakdown */}
+                  {mySub && viewStudentAnalysisId === quiz.id && (
+                    <div style={{ marginTop: '14px', padding: '16px', background: 'var(--surface)', borderRadius: '12px', border: '1px solid #c7d2fe', boxShadow: 'var(--shadow)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--line)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6366f1', fontWeight: 800, fontSize: '11px', letterSpacing: '.06em' }}>
+                          <Sparkles size={15} style={{ color: '#8b5cf6' }} /> STUDENT AI QUIZ ANALYSIS & MISTAKES
+                        </div>
+                        <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600 }}>
+                          Submitted: {new Date(mySub.submittedAt || Date.now()).toLocaleDateString()}
+                        </span>
+                      </div>
+
+                      {/* Performance Summary Metrics */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '14px' }}>
+                        <div style={{ padding: '10px', borderRadius: '8px', background: 'var(--soft)', textAlign: 'center' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 700, display: 'block' }}>SCORE</span>
+                          <b style={{ font: "800 20px 'Plus Jakarta Sans'", color: mySub.score >= 70 ? '#10b981' : '#f59e0b' }}>{mySub.score}%</b>
+                        </div>
+                        <div style={{ padding: '10px', borderRadius: '8px', background: '#ecfdf5', textAlign: 'center' }}>
+                          <span style={{ fontSize: '10px', color: '#059669', fontWeight: 700, display: 'block' }}>CORRECT</span>
+                          <b style={{ font: "800 20px 'Plus Jakarta Sans'", color: '#059669' }}>{mySub.correctCount || 0}</b>
+                        </div>
+                        <div style={{ padding: '10px', borderRadius: '8px', background: '#fff1f2', textAlign: 'center' }}>
+                          <span style={{ fontSize: '10px', color: '#e11d48', fontWeight: 700, display: 'block' }}>INCORRECT</span>
+                          <b style={{ font: "800 20px 'Plus Jakarta Sans'", color: '#e11d48' }}>{(mySub.incorrectCount || 0) + (mySub.skippedCount || 0)}</b>
+                        </div>
+                      </div>
+
+                      {/* AI Feedback & Guidance */}
+                      <div style={{ padding: '12px', borderRadius: '9px', background: '#f5f3ff', border: '1px solid #ddd6fe', marginBottom: '14px', color: '#6d28d9', fontSize: '12px', lineHeight: 1.5 }}>
+                        <b>🤖 AI Feedback & Revision Advice:</b>
+                        <p style={{ margin: '4px 0 0', color: '#5b21b6', fontSize: '11.5px' }}>
+                          {mySub.score >= 80
+                            ? `Great job! You scored ${mySub.score}%. You demonstrated high accuracy in ${quiz.topic || 'this chapter'}. Review the minor mistakes below to achieve a perfect score next time.`
+                            : mySub.score >= 50
+                              ? `Good effort! You achieved ${mySub.score}%. Focus your revision on the incorrect questions highlighted below, specifically definitions and formula applications in ${quiz.topic || 'this topic'}.`
+                              : `Keep practicing! You scored ${mySub.score}%. Carefully study the correct answers and explanations below to improve your understanding of ${quiz.topic || 'this subject'}.`}
+                        </p>
+                      </div>
+
+                      {/* Itemized Question Mistakes Breakdown */}
+                      <h4 style={{ margin: '0 0 10px', fontSize: '12px', fontWeight: 800, color: 'var(--text)' }}>Question Breakdown & Mistakes</h4>
+                      <div style={{ display: 'grid', gap: '10px' }}>
+                        {(mySub.answers || quiz.questions || []).map((ans, aIdx) => {
+                          const isCorr = ans.isCorrect;
+                          const qPrompt = ans.prompt || quiz.questions?.[aIdx]?.prompt;
+                          const uAns = ans.userAnswer || 'No answer provided';
+                          const cAns = ans.correctAnswer || quiz.questions?.[aIdx]?.answer;
+
+                          return (
+                            <div key={aIdx} style={{ padding: '10px 12px', border: `1px solid ${isCorr ? '#a7f3d0' : '#fecdd3'}`, borderRadius: '8px', background: isCorr ? '#f0fdf4' : '#fff5f5' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <b style={{ fontSize: '11.5px', color: 'var(--text)' }}>Q{aIdx + 1}: {qPrompt}</b>
+                                <span className={`badge ${isCorr ? 'success' : 'warning'}`} style={{ fontSize: '9px' }}>
+                                  {isCorr ? '✓ Correct' : '✗ Incorrect'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '11px', marginTop: '4px', display: 'grid', gap: '2px' }}>
+                                <p style={{ margin: 0, color: isCorr ? '#047857' : '#b91c1c' }}>
+                                  Your Answer: <b>{uAns}</b>
+                                </p>
+                                {!isCorr && cAns && (
+                                  <p style={{ margin: 0, color: '#047857' }}>
+                                    Correct Answer: <b>{cAns}</b>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {activeQuizId === quiz.id && !mySub && (
                     <div style={{ marginTop: '14px', padding: '14px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--line)' }}>
