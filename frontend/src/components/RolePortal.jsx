@@ -334,7 +334,10 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
   const [messageText, setMessageText] = useState('');
   const [playingFeedbackId, setPlayingFeedbackId] = useState(null);
 
-  const studentId = workspace.students?.find(s => s.name?.toLowerCase() === workspace.profile?.fullName?.toLowerCase())?.id || 's1';
+  // Resolve studentId robustly using profile ID, student roster match, or fallback
+  const studentProfileName = (workspace.profile?.fullName || workspace.profile?.name || '').toLowerCase();
+  const matchedStudentObj = workspace.students?.find(s => s.name?.toLowerCase() === studentProfileName || s.email?.toLowerCase() === workspace.profile?.email?.toLowerCase());
+  const studentId = matchedStudentObj?.id || workspace.profile?.id || 's1';
 
   const demoClassRecord = findDemoClass(classRecord.joinCode || classRecord.id);
 
@@ -355,14 +358,14 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
   rawTests.forEach(t => { if (t) testMap.set(t.id || t.title, { ...testMap.get(t.id || t.title), ...t }); });
   const tests = Array.from(testMap.values());
 
-  const rawFeedback = [...(demoClassRecord?.feedback || []), ...(workspace.feedback || [])];
+  const rawFeedback = [...(demoClassRecord?.feedback || []), ...(workspace.feedback || []), ...(workspace.voiceFeedback || [])];
   const fbMap = new Map();
   rawFeedback.forEach(f => { if (f) fbMap.set(f.id || f.title || f.summary, f); });
   const feedback = Array.from(fbMap.values());
 
   const rawResources = [...(demoClassRecord?.resources || []), ...(workspace.resources || [])];
   const resMap = new Map();
-  rawResources.forEach(r => { if (r) resMap.set(r.id || r.name, r); });
+  rawResources.forEach(r => { if (r && (r.id || r.name)) resMap.set(r.id || r.name, r); });
   const resources = Array.from(resMap.values());
 
   const totalHw = homework.filter(hw =>
@@ -403,11 +406,23 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
     r.subject === classRecord.subject
   );
 
-  const studentFeedbacks = feedback.filter(f => f.studentId === studentId || !f.classId || f.classId === classRecord.id || f.classId === classRecord.joinCode);
+  const studentFeedbacks = feedback.filter(f =>
+    f.studentId === studentId ||
+    f.studentName?.toLowerCase() === studentProfileName ||
+    !f.classId ||
+    f.classId === classRecord.id ||
+    f.classId === classRecord.joinCode
+  );
 
   const rawMessages = [...(demoClassRecord?.messages || []), ...(workspace.chatThreads?.[classRecord.id] || [])];
   const msgMap = new Map();
-  rawMessages.forEach(m => { if (m) msgMap.set(m.id || `${m.from}-${m.text}`, m); });
+  rawMessages.forEach(m => {
+    if (!m) return;
+    // Show message if it is not targeted or if targeted specifically to this student
+    if (!m.targetStudentId || m.targetStudentId === studentId || m.targetStudentId === matchedStudentObj?.id) {
+      msgMap.set(m.id || `${m.from}-${m.text}`, m);
+    }
+  });
   const storedMessages = Array.from(msgMap.values());
   if (storedMessages.length === 0) {
     storedMessages.push({ id: 'm0', from: 'them', text: `Welcome to ${classRecord.name}! Ask any questions here regarding ${classRecord.subject}.`, time: '09:00 AM' });

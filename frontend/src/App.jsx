@@ -844,12 +844,16 @@ function ClassResourceModal({ classRecord, updateWorkspace, onClose, onToast }) 
     if (!title.trim() || !fileName) return;
     setSaving(true);
 
+    const classCode = classRecord.joinCode || classRecord.id;
     const resource = {
       id: `resource-${Date.now()}`,
       name: title.trim(),
       type,
+      // Store BOTH classId AND joinCode so students can always match regardless of which
+      // identifier their classRecord carries (internal id vs join code).
       classId: classRecord.id,
-      joinCode: classRecord.joinCode || classRecord.id,
+      joinCode: classCode,
+      className: classRecord.name,
       grade: classRecord.name,
       subject: classRecord.subject,
       updated: 'Today',
@@ -858,13 +862,13 @@ function ClassResourceModal({ classRecord, updateWorkspace, onClose, onToast }) 
     };
 
     // Sync to class registry and all accounts BEFORE React batches the state update
-    const classCode = classRecord.joinCode || classRecord.id;
     updateWorkspace(current => {
       const list = current.resources || [];
       // Filter to only resources for this class, then prepend the new one
       const classResources = [resource, ...list.filter(r =>
         !r.classId || r.classId === classRecord.id ||
-        r.joinCode === classCode || r.grade === classRecord.name
+        r.joinCode === classCode || r.className === classRecord.name ||
+        r.grade === classRecord.name
       )];
       // Sync now while we have the full list
       syncClassCollection(classCode, 'resources', classResources);
@@ -1394,6 +1398,10 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
     const quizData = {
       id: quizToEdit?.id || `quiz-${Date.now()}`,
       classId: classRecord.id,
+      // joinCode is stored so the student-side filter (q.joinCode === classRecord.joinCode)
+      // can always find the quiz regardless of internal id vs join-code differences.
+      joinCode: classRecord.joinCode || classRecord.id,
+      className: classRecord.name,
       title: form.title.trim(),
       subject: classRecord.subject,
       topic: form.topic.trim(),
@@ -1987,19 +1995,67 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
     }
   });
   const classQuizzes = Array.from(quizMap.values());
-  const classFeedback = (workspace.feedback || []).filter(item =>
-    roster.some(stud => stud.id === item.studentId)
+  // Merge feedback from both workspace state and the demo class registry so new items
+  // created in either source are always visible to the teacher.
+  const rawFeedback = [
+    ...(workspace.feedback || []),
+    ...(workspace.voiceFeedback || []),
+    ...(demoRegistryRecord?.feedback || [])
+  ];
+  const fbDedupeMap = new Map();
+  rawFeedback.forEach(f => { if (f && f.id) fbDedupeMap.set(f.id, f); });
+  const classFeedback = Array.from(fbDedupeMap.values()).filter(item =>
+    roster.some(stud => stud.id === item.studentId) ||
+    item.classId === classRecord.id ||
+    item.classId === (classRecord.joinCode || classRecord.id)
   );
-  const classResources = (workspace.resources || []).filter(item => item.classId === classRecord.id);
 
-  // Send message thread handler
+  // Resources: merge workspace state with demo registry so uploads are always visible.
+  const rawResources = [
+    ...(workspace.resources || []),
+    ...(demoRegistryRecord?.resources || [])
+  ];
+  const resDedupeMap = new Map();
+  rawResources.forEach(r => { if (r && (r.id || r.name)) resDedupeMap.set(r.id || r.name, r); });
+  const classResources = Array.from(resDedupeMap.values()).filter(item =>
+    item.classId === classRecord.id ||
+    item.joinCode === (classRecord.joinCode || classRecord.id) ||
+    item.className === classRecord.name ||
+    item.grade === classRecord.name
+  );
+
+  // Messages: use a unified key that matches what students read from the class registry.
+  // Teacher messages are stored under workspace.classMessages[classId:studentId] AND
+  // synced into the demo class registry so students can read them.
   const messageStudent = roster.find(item => item.id === selectedStudentChat) || roster[0];
   const messageKey = messageStudent ? `${classRecord.id}:${messageStudent.id}` : null;
-  const classMessages = messageKey ? workspace.classMessages?.[messageKey] || [] : [];
+  // Merge teacher's local messages with any messages in the class registry
+  const registryMessages = demoRegistryRecord?.messages || [];
+  const registryMsgForStudent = registryMessages.filter(m =>
+    !m.targetStudentId || m.targetStudentId === messageStudent?.id
+  );
+  const localMessages = messageKey ? workspace.classMessages?.[messageKey] || [] : [];
+  const allMsgMap = new Map();
+  [...registryMsgForStudent, ...localMessages].forEach(m => {
+    if (m && m.id) allMsgMap.set(m.id, m);
+  });
+  const classMessages = Array.from(allMsgMap.values()).sort((a, b) =>
+    (a.id || '').localeCompare(b.id || '')
+  );
 
   function sendClassMessage(event) {
     event.preventDefault();
-    if (!messageText.trim() || !messageKey) return;
+    if (!messageText.trim() || !messageKey || !messageStudent) return;
+
+    const newMsg = {
+      id: `class-message-${Date.now()}`,
+      text: messageText.trim(),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      from: 'teacher',
+      senderName: workspace.profile?.fullName || 'Teacher',
+      // targetStudentId allows filtering messages per-student in the class registry
+      targetStudentId: messageStudent.id
+    };
 
     updateWorkspace(current => ({
       ...current,
@@ -2007,10 +2063,16 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
         ...(current.classMessages || {}),
         [messageKey]: [
           ...(current.classMessages?.[messageKey] || []),
-          { id: `class-message-${Date.now()}`, text: messageText.trim(), time: 'Now', from: 'teacher' }
+          newMsg
         ]
       }
     }));
+
+    // Sync to class registry so the student can read the teacher's message
+    const classCode = classRecord.joinCode || classRecord.id;
+    const existingRegistryMessages = (findDemoClass(classCode)?.messages || []);
+    syncClassCollection(classCode, 'messages', [...existingRegistryMessages, newMsg]);
+
     setMessageText('');
     onToast(`Message sent to ${messageStudent.name}.`);
   }
