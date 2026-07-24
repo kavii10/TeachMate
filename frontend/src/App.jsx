@@ -849,21 +849,27 @@ function ClassResourceModal({ classRecord, updateWorkspace, onClose, onToast }) 
       name: title.trim(),
       type,
       classId: classRecord.id,
+      joinCode: classRecord.joinCode || classRecord.id,
       grade: classRecord.name,
+      subject: classRecord.subject,
       updated: 'Today',
       tint: type === 'Slides' ? 'violet' : type === 'Worksheet' ? 'blue' : 'amber',
       fileName: fileName
     };
 
-    let updatedResources = [];
+    // Sync to class registry and all accounts BEFORE React batches the state update
+    const classCode = classRecord.joinCode || classRecord.id;
     updateWorkspace(current => {
       const list = current.resources || [];
-      updatedResources = [resource, ...list];
-      return { ...current, resources: updatedResources };
+      // Filter to only resources for this class, then prepend the new one
+      const classResources = [resource, ...list.filter(r =>
+        !r.classId || r.classId === classRecord.id ||
+        r.joinCode === classCode || r.grade === classRecord.name
+      )];
+      // Sync now while we have the full list
+      syncClassCollection(classCode, 'resources', classResources);
+      return { ...current, resources: [resource, ...list] };
     });
-
-    const classCode = classRecord.joinCode || classRecord.id;
-    syncClassCollection(classCode, 'resources', updatedResources.filter(r => !r.classId || r.classId === classRecord.id || r.grade === classRecord.name));
 
     onToast(`${resource.name} uploaded and shared with students.`);
     onClose();
@@ -3263,18 +3269,22 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
             onPublished={feedback => {
               const newRec = {
                 ...feedback,
+                id: feedback.id || `fb-${Date.now()}`,
                 studentId: feedbackTarget.studentId,
                 studentName: feedbackTarget.studentName,
                 classId: feedbackTarget.classId
               };
-              let updatedFb = [];
+              const classCode = feedbackTarget.classId || classRecord?.joinCode || classRecord?.id;
               updateWorkspace(current => {
-                const list = current.feedback || current.voiceFeedback || [];
-                updatedFb = [newRec, ...list];
+                const list = [...(current.feedback || []), ...(current.voiceFeedback || [])];
+                // Deduplicate
+                const fbMap = new Map();
+                [newRec, ...list].forEach(f => { if (f && f.id) fbMap.set(f.id, f); });
+                const updatedFb = Array.from(fbMap.values());
+                // Sync inside the updater so we have the real list
+                if (classCode) syncClassCollection(classCode, 'feedback', updatedFb);
                 return { ...current, feedback: updatedFb, voiceFeedback: updatedFb };
               });
-              const classCode = classRecord.joinCode || classRecord.id;
-              syncClassCollection(classCode, 'feedback', updatedFb);
               onToast(`Voice feedback published to ${feedbackTarget.studentName}.`);
             }}
           />

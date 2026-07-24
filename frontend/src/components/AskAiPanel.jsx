@@ -173,203 +173,191 @@ function getInitialGreeting(role, page, currentClass) {
 
 
 
+
 /**
- * Universal Intelligent Workspace Response Engine
- * Dynamically analyzes ANY question asked by a Teacher, Student, or Admin using live dashboard & Supabase workspace data.
- * Outputs fresh, direct, precise answers without boilerplate template headers.
+ * Real-Data Workspace Analysis Engine
+ * Uses ONLY live workspace data — no hardcoded fakes.
+ * Returns null for anything that cannot be answered from real data → triggers LLM streaming.
  */
 function analyzeWorkspaceAndReply(query, role, workspace, currentClass, page) {
   const text = query.trim();
   const q = text.toLowerCase();
 
-  // Extract real workspace entities
-  const schoolName = workspace?.profile?.schoolName || 'TeachMate Academy';
+  // Pull real data only
+  const schoolName = workspace?.profile?.schoolName || workspace?.adminData?.school?.name || '';
   const students = workspace?.students || workspace?.adminData?.students || [];
   const classes = workspace?.classes || [];
   const homework = workspace?.homework || [];
   const quizzes = workspace?.quizzes || [];
   const tests = workspace?.tests || workspace?.assessments || [];
-  const feedback = workspace?.feedback || [];
+  const feedback = workspace?.feedback || workspace?.voiceFeedback || [];
   const resourcesList = workspace?.resources || currentClass?.resources || [];
   const adminData = workspace?.adminData || {};
   const activeClass = currentClass || classes[0] || null;
-  const className = activeClass ? `${activeClass.name} (${activeClass.subject || 'Science'})` : `${page} portal`;
+  const className = activeClass
+    ? `${activeClass.name}${activeClass.subject ? ` (${activeClass.subject})` : ''}`
+    : (schoolName || 'your workspace');
 
-  // 0. USER-SPECIFIED EXACT QUESTIONS & ANSWERS
-  // Question: "how many students completed the quiz"
-  if ((q.includes('completed') || q.includes('finish') || q.includes('done')) && (q.includes('quiz') || q.includes('quizzes')) && (q.includes('how many') || q.includes('student') || q.includes('who'))) {
-    return `only Anu and manoj have completed the quiz`;
+  // --- 1. SPECIFIC STUDENT LOOKUP BY NAME (real data only) ---
+  const matchedStudent = students.find(s => s.name && q.includes(s.name.toLowerCase()));
+  if (matchedStudent) {
+    const studentHw = homework.filter(h =>
+      h.submissions?.some(sub =>
+        sub.studentId === matchedStudent.id ||
+        sub.studentName?.toLowerCase() === matchedStudent.name.toLowerCase()
+      )
+    );
+    const studentFb = feedback.filter(f =>
+      f.studentId === matchedStudent.id ||
+      f.studentName?.toLowerCase() === matchedStudent.name.toLowerCase()
+    );
+    const lines = [
+      `**Student Record: ${matchedStudent.name}**`,
+      `• **Class**: ${matchedStudent.className || activeClass?.name || 'Enrolled'}`,
+      matchedStudent.score != null ? `• **Score**: ${matchedStudent.score}%` : null,
+      matchedStudent.attendance != null ? `• **Attendance**: ${matchedStudent.attendance}%` : null,
+      `• **Homework Submissions**: ${studentHw.length}`,
+      studentFb.length > 0
+        ? `• **Feedback**: ${studentFb.map(f => `"${f.summary || f.title || f.text}"`).join(', ')}`
+        : null
+    ].filter(Boolean);
+    return lines.join('\n');
   }
 
-  // Question: "what is my today agenta" / "agenda" / "today schedule"
-  if ((q.includes('agenda') || q.includes('agenta') || q.includes('schedule') || q.includes('plan')) && (q.includes('today') || q.includes('my'))) {
-    if (role === 'teacher' || role === 'admin') {
-      return `you have a science period in the morning and physics period in afternnon.and also you have parents meeting in the evening`;
+  // --- 2. SPECIFIC CLASS LOOKUP BY NAME/SUBJECT (real data only) ---
+  const matchedClass = classes.find(c =>
+    (c.name && q.includes(c.name.toLowerCase())) ||
+    (c.subject && q.includes(c.subject.toLowerCase()))
+  );
+  if (matchedClass && (q.includes('summary') || q.includes('how is') || q.includes('class') || q.includes('performance') || q.includes('report') || q.includes('overview'))) {
+    const classStudents = students.filter(s =>
+      s.classId === matchedClass.id ||
+      s.className?.toLowerCase().includes(matchedClass.name?.split(' ')[0]?.toLowerCase())
+    );
+    const classHw = homework.filter(h =>
+      h.classId === matchedClass.id ||
+      h.className?.toLowerCase().includes(matchedClass.name?.split(' ')[0]?.toLowerCase()) ||
+      h.subject?.toLowerCase() === matchedClass.subject?.toLowerCase()
+    );
+    const lines = [
+      `**${matchedClass.name}${matchedClass.subject ? ` (${matchedClass.subject})` : ''} Overview**`,
+      `• **Enrolled Students**: ${classStudents.length || matchedClass.students || 0}`,
+      matchedClass.joinCode ? `• **Join Code**: \`${matchedClass.joinCode}\`` : null,
+      `• **Assignments**: ${classHw.length}`,
+      classStudents.length > 0
+        ? `**Students**:\n` + classStudents.slice(0, 8).map(s =>
+            `• ${s.name}${s.score != null ? ` — ${s.score}%` : ''}${s.attendance != null ? `, Attendance: ${s.attendance}%` : ''}`
+          ).join('\n')
+        : null
+    ].filter(Boolean);
+    return lines.join('\n');
+  }
+
+  // --- 3. WEAK / LOW-PERFORMING STUDENTS (real data only) ---
+  if (q.includes('extra help') || q.includes('struggling') || q.includes('weak student') || q.includes('low attendance') || q.includes('who needs help')) {
+    const weak = students.filter(s => (s.score != null && s.score < 75) || (s.attendance != null && s.attendance < 85));
+    if (students.length === 0) return null; // No data yet, let LLM handle
+    if (weak.length > 0) {
+      const list = weak.map(s =>
+        `• **${s.name}**${s.className ? ` (${s.className})` : ''}${s.score != null ? ` — Score: ${s.score}%` : ''}${s.attendance != null ? `, Attendance: ${s.attendance}%` : ''}`
+      ).join('\n');
+      return `**Students needing support in ${className}:**\n\n${list}\n\n**Action**: Schedule 1-on-1 check-ins or assign targeted practice.`;
     }
+    return `All **${students.length}** students in **${className}** are currently meeting performance thresholds.`;
   }
 
-  // Question: "we have any work today" / "any work today" (Student)
-  if ((q.includes('work') || q.includes('homework') || q.includes('task') || q.includes('assignment')) && (q.includes('today') || q.includes('have any') || q.includes('we have') || q.includes('do we') || q.includes('any work'))) {
-    if (role === 'student' || q.includes('we have') || q.includes('i have')) {
-      return `yes you have to complete the math quiz and complete the homework also you have to prepare for the tomorrow program speech`;
-    }
+  // --- 4. HOMEWORK / ASSIGNMENT LISTING (real data only) ---
+  if (
+    q.includes('what homework') || q.includes('which homework') || q.includes('homework i give') ||
+    q.includes('homework i assigned') || q.includes('did i give') || q.includes('did i assign') ||
+    q.includes('list homework') || q.includes('list assignment') || q.includes('my homework')
+  ) {
+    if (homework.length === 0) return null; // Let LLM answer
+    const totalEnrolled = students.length || (activeClass?.students ? Number(activeClass.students) : 0);
+    const list = homework.map(h => {
+      const submitted = h.submissions
+        ? h.submissions.filter(s => s.status === 'submitted' || s.status === 'graded' || s.submittedAt).length
+        : 0;
+      return `• **${h.title || h.name || h.subject}**${h.subject ? ` (${h.subject})` : ''}\n  Due: **${h.dueDate || h.due || 'Scheduled'}** | Status: *${h.status || 'Active'}* | Submissions: ${submitted}${totalEnrolled > 0 ? ` of ${totalEnrolled}` : ''}`;
+    }).join('\n\n');
+    return `**Assigned Homework for ${className}** (${homework.length} item${homework.length === 1 ? '' : 's'}):\n\n${list}`;
   }
 
-  // 1. RESOURCES / PUBLISHED MATERIALS / LECTURE NOTES / FILES
-  if (q.includes('resource') || q.includes('publish') || q.includes('material') || q.includes('note') || q.includes('doc') || q.includes('file') || q.includes('upload') || q.includes('pdf')) {
+  // --- 5. HOMEWORK COMPLETION / SUBMISSION REPORT (real data only) ---
+  if (
+    (q.includes('submission') || q.includes('completion') || q.includes('who submitted') || q.includes('submitted')) &&
+    (q.includes('homework') || q.includes('assignment'))
+  ) {
+    if (homework.length === 0) return null;
+    const totalEnrolled = students.length || (activeClass?.students ? Number(activeClass.students) : 0);
+    const breakdown = homework.map(h => {
+      const submitted = h.submissions
+        ? h.submissions.filter(s => s.status === 'submitted' || s.status === 'graded' || s.submittedAt).length
+        : 0;
+      const pct = totalEnrolled > 0 ? Math.round((submitted / totalEnrolled) * 100) : 0;
+      return `• **${h.title || h.subject}**: ${submitted}${totalEnrolled > 0 ? ` of ${totalEnrolled}` : ''} submitted${totalEnrolled > 0 ? ` (${pct}%)` : ''}`;
+    }).join('\n');
+    return `**Homework Submission Report for ${className}:**\n\n${breakdown}`;
+  }
+
+  // --- 6. QUIZ COMPLETION (real data only) ---
+  if (
+    (q.includes('completed') || q.includes('finished') || q.includes('done') || q.includes('submitted')) &&
+    (q.includes('quiz') || q.includes('quizzes'))
+  ) {
+    if (quizzes.length === 0) return null;
+    const lines = quizzes.map(qz => {
+      const completedSubs = (qz.submissions || []).filter(s => s.submittedAt || s.status === 'completed');
+      const names = completedSubs.map(s => s.studentName || s.studentId).filter(Boolean);
+      return `• **${qz.title || qz.topic || 'Quiz'}**: ${completedSubs.length} student${completedSubs.length === 1 ? '' : 's'} completed${names.length > 0 ? ` (${names.join(', ')})` : ''}`;
+    }).join('\n');
+    return `**Quiz Completion for ${className}:**\n\n${lines}`;
+  }
+
+  // --- 7. RESOURCES / MATERIALS (real data only) ---
+  if (q.includes('resource') || q.includes('material') || q.includes('upload') || q.includes('published file') || q.includes('study material')) {
     if (resourcesList.length > 0) {
-      const items = resourcesList.map(r => `• **${r.title || r.name}** (${r.type || 'Document'}): Published ${r.date || 'recently'}`).join('\n');
-      return `You have published **${resourcesList.length}** study resource(s) for **${className}**:\n\n${items}\n\nStudents can view and download these from their Resources tab.`;
+      const items = resourcesList.map(r => `• **${r.title || r.name}** (${r.type || 'Document'})`).join('\n');
+      return `**Study Resources for ${className}** (${resourcesList.length} file${resourcesList.length === 1 ? '' : 's'}):\n\n${items}\n\nStudents can download these from their Resources tab.`;
     }
-    return `You haven't published any study resources for **${className}** yet (0 files uploaded).\n\nTo publish resources, open the **Resources** tab in your sidebar and click **+ Add Resource** to upload lecture slides or PDF notes.`;
+    return `No study resources have been published for **${className}** yet. Upload slides, PDFs or worksheets from the Resources section.`;
   }
 
-  // 2. SCHOOL ANNOUNCEMENTS & NOTICES
-  if (q.includes('announcement') || q.includes('notice') || q.includes('news') || q.includes('update')) {
+  // --- 8. ANNOUNCEMENTS (real data) ---
+  if (q.includes('announcement') || q.includes('notice') || q.includes('school news')) {
     const schoolAnnouncements = loadSchoolAnnouncements(schoolName);
     const adminNotices = adminData.notifications || [];
     const allNotices = [...schoolAnnouncements, ...adminNotices];
-
     if (allNotices.length > 0) {
-      const list = allNotices.map(n => `• **${n.title}**: ${n.body || n.text || 'No details provided'} (*Source: ${n.source || 'Admin'}*)`).join('\n');
-      return `Here are the **${allNotices.length}** active announcements for **${schoolName}**:\n\n${list}`;
+      const list = allNotices.map(n => `• **${n.title}**: ${n.body || n.text || ''}`).join('\n');
+      return `**Active Announcements for ${schoolName || 'your school'}** (${allNotices.length}):\n\n${list}`;
     }
-    return `There are currently no active announcements published for **${schoolName}**. Everything is up to date in your workspace!`;
+    return `No active announcements right now for ${schoolName || 'your school'}.`;
   }
 
-  // 3. SPECIFIC STUDENT LOOKUP BY NAME
-  const matchedStudent = students.find(s => s.name && q.includes(s.name.toLowerCase()));
-  if (matchedStudent) {
-    const studentHw = homework.filter(h => h.submissions?.some(sub => sub.studentId === matchedStudent.id || sub.studentName?.toLowerCase() === matchedStudent.name.toLowerCase()));
-    const studentFb = feedback.filter(f => f.studentId === matchedStudent.id || f.studentName?.toLowerCase() === matchedStudent.name.toLowerCase());
-
-    return `**Student Record: ${matchedStudent.name}**\n\n` +
-      `• **Enrolled Class**: ${matchedStudent.className || activeClass?.name || 'Grade 10'}\n` +
-      `• **Academic Score**: ${matchedStudent.score ? matchedStudent.score + '%' : '84%'}\n` +
-      `• **Attendance**: ${matchedStudent.attendance ? matchedStudent.attendance + '%' : '92%'}\n` +
-      `• **Submissions On File**: ${studentHw.length || 2} assignment(s)\n` +
-      `• **Teacher Feedback**: ${studentFb.length > 0 ? studentFb.map(f => `"${f.summary || f.comment || f.text}"`).join(', ') : 'Demonstrating steady progress in class.'}\n\n` +
-      `**Next Step**: ${matchedStudent.score && matchedStudent.score < 75 ? 'Assign targeted practice worksheets and schedule a 1-on-1 check-in.' : 'Encourage participation in advanced practice quizzes.'}`;
-  }
-
-  // 4. CLASS / SUBJECT OVERVIEW & PERFORMANCE
-  const matchedClass = classes.find(c => (c.name && q.includes(c.name.toLowerCase())) || (c.subject && q.includes(c.subject.toLowerCase())));
-  if (matchedClass && (q.includes('summary') || q.includes('how is') || q.includes('class') || q.includes('performance') || q.includes('report'))) {
-    const classStudents = students.filter(s => s.className?.includes(matchedClass.name.split(' ')[0]));
-    const classHw = homework.filter(h => h.className?.includes(matchedClass.name.split(' ')[0]) || h.subject?.toLowerCase() === matchedClass.subject.toLowerCase());
-    return `**Class Performance: ${matchedClass.name} (${matchedClass.subject})**\n\n` +
-      `• **Roster**: ${classStudents.length || matchedClass.students || 35} enrolled students\n` +
-      `• **Average Progress**: ${matchedClass.progress || 82}%\n` +
-      `• **Class Join Code**: \`${matchedClass.joinCode || 'TM-DEMO'}\`\n` +
-      `• **Assignments Assigned**: ${classHw.length} item(s)\n\n` +
-      (classStudents.length > 0
-        ? `**Student Overview**:\n` + classStudents.slice(0, 5).map(s => `• ${s.name} — Score: ${s.score || 80}%, Attendance: ${s.attendance || 90}%`).join('\n')
-        : `All students are performing steadily across scheduled assessments.`);
-  }
-
-  // 5. WEAK STUDENTS / LOW ATTENDANCE / EXTRA HELP
-  if (q.includes('extra help') || q.includes('struggling') || q.includes('weak') || q.includes('low attendance') || q.includes('absent')) {
-    const weakStudents = students.filter(s => (s.score && s.score < 75) || (s.attendance && s.attendance < 85));
-    if (weakStudents.length > 0) {
-      const list = weakStudents.map(s => `• **${s.name}** (${s.className || 'Class'}) — Score: ${s.score || 68}%, Attendance: ${s.attendance || 82}%`).join('\n');
-      return `Here are the students requiring follow-up support in **${className}**:\n\n${list}\n\n**Action**: Schedule 1-on-1 check-ins or assign practice worksheets.`;
+  // --- 9. SCHOOL ADMIN OVERVIEW (real data only) ---
+  if (role === 'admin' || role === 'school_admin') {
+    const teacherList = adminData.teachers || [];
+    const studentList = adminData.students || students;
+    const classList = adminData.classes || classes;
+    if (teacherList.length > 0 || studentList.length > 0 || classList.length > 0) {
+      return `**School Overview for ${schoolName || 'your school'}:**\n\n` +
+        `• **Active Teachers**: ${teacherList.length}\n` +
+        `• **Enrolled Students**: ${studentList.length}\n` +
+        `• **Active Classes**: ${classList.length}`;
     }
-    return `In **${className}**, all **${students.length || 32}** enrolled students are maintaining academic scores above 80% and attendance above 88%.`;
   }
 
-  // 6A. LIST ASSIGNED HOMEWORK (e.g. "what homework I give", "what homework did I assign", "list assignments")
-  if (q.includes('what homework') || q.includes('which homework') || q.includes('homework i give') || q.includes('homework i assigned') || q.includes('did i give') || q.includes('did i assign') || q.includes('list homework') || q.includes('my homework')) {
-    const items = homework.length > 0 ? homework : [
-      { id: 'h1', title: 'Plant Cell Organelles Diagram', subject: 'Biology', className: activeClass?.name || 'Grade 10 Science', dueDate: 'Tomorrow', status: 'Active', submissions: Array(28).fill({ status: 'submitted' }) }
-    ];
-    const totalEnrolled = students.length || 32;
-
-    const list = items.map(h => {
-      const submitted = h.submissions ? h.submissions.filter(s => s.status === 'submitted' || s.status === 'graded' || s.submittedAt).length : 0;
-      return `• **${h.title || h.name || h.subject}** (${h.subject || 'General'})\n  - Due Date: **${h.dueDate || h.due || 'Scheduled'}**\n  - Status: *${h.status || 'Active'}* (${submitted} of ${totalEnrolled} submitted)`;
-    }).join('\n\n');
-
-    return `You have assigned **${items.length}** homework item(s) for **${className}**:\n\n${list}`;
+  // --- 10. FEEDBACK SUMMARY (real data) ---
+  if (q.includes('feedback') || q.includes('correction') || q.includes('observation')) {
+    if (feedback.length > 0) {
+      const items = feedback.slice(0, 5).map(f => `• **${f.title || 'Feedback'}** for ${f.studentName || 'student'}: ${f.summary || f.text || f.transcript || ''}`).join('\n');
+      return `**Teacher Feedback (${feedback.length} note${feedback.length === 1 ? '' : 's'}) for ${className}:**\n\n${items}`;
+    }
+    return `No feedback notes recorded yet for **${className}**.`;
   }
 
-  // 6B. HOMEWORK SUBMISSIONS & COMPLETION REPORT (e.g. "how many students completed", "completion rate", "who submitted", "cement")
-  if (q.includes('submission') || q.includes('homework') || q.includes('assignment') || q.includes('due') || q.includes('pending') || q.includes('complete') || q.includes('cement')) {
-    const totalEnrolled = students.length || (activeClass?.students ? Number(activeClass.students) : 32);
-    const items = homework.length > 0 ? homework : [
-      { id: 'h1', title: 'Plant Cell Organelles Diagram', subject: 'Biology', className: activeClass?.name || 'Grade 10 Science', dueDate: 'Tomorrow', status: 'Active', submissions: Array(28).fill({ status: 'submitted' }) },
-      { id: 'h2', title: 'Periodic Table Properties Worksheet', subject: 'Chemistry', className: activeClass?.name || 'Grade 10 Science', dueDate: 'Friday', status: 'Active', submissions: Array(21).fill({ status: 'submitted' }) }
-    ];
-
-    const breakdown = items.map(h => {
-      const completedCount = h.submissions ? h.submissions.filter(s => s.status === 'submitted' || s.status === 'graded' || s.submittedAt).length : (h.status === 'Completed' ? totalEnrolled : Math.round(totalEnrolled * 0.85));
-      const percentage = Math.round((completedCount / totalEnrolled) * 100);
-      return `• **${h.title || h.subject}**:\n  **${completedCount} of ${totalEnrolled}** students completed (${percentage}% completion) | **${totalEnrolled - completedCount}** pending (Due: ${h.dueDate || 'Soon'})`;
-    }).join('\n\n');
-
-    const totalCompleted = items.reduce((acc, h) => acc + (h.submissions ? h.submissions.filter(s => s.status === 'submitted' || s.status === 'graded' || s.submittedAt).length : (h.status === 'Completed' ? totalEnrolled : Math.round(totalEnrolled * 0.85))), 0);
-    const overallRate = Math.round((totalCompleted / (items.length * totalEnrolled)) * 100);
-
-    return `**Homework Completion Report for ${className}**\n\n` +
-      `• **Total Enrolled**: ${totalEnrolled} students\n` +
-      `• **Overall Completion Rate**: ${overallRate}%\n\n` +
-      `**Assignment Breakdown**:\n\n${breakdown}`;
-  }
-
-  // 7. GENERATE MCQS / QUIZ
-  if (q.includes('mcq') || (q.includes('generate') && (q.includes('quiz') || q.includes('question')))) {
-    const topicMatch = text.match(/(?:on|about|for)\s+([A-Za-z0-9\s]+)/i);
-    const topic = topicMatch ? topicMatch[1].trim() : (activeClass?.subject || 'Science');
-    return `Here are 5 fresh MCQs generated for **${topic}**:\n\n` +
-      `1. **What is the primary function of chlorophyll in plant cells?**\n   A) Absorb light energy  B) Store water  C) Synthesize proteins\n   *Answer: A*\n\n` +
-      `2. **Which organelle is known as the powerhouse of the cell?**\n   A) Nucleus  B) Mitochondria  C) Ribosome\n   *Answer: B*\n\n` +
-      `3. **What is the net gain of ATP molecules in Glycolysis?**\n   A) 2 ATP  B) 4 ATP  C) 36 ATP\n   *Answer: A*\n\n` +
-      `4. **Which gas is released during photosynthesis?**\n   A) Carbon Dioxide  B) Oxygen  C) Nitrogen\n   *Answer: B*\n\n` +
-      `5. **What type of cell division produces haploid daughter cells?**\n   A) Mitosis  B) Meiosis  C) Budding\n   *Answer: B*\n\n` +
-      `*This draft quiz is ready to assign to your students.*`;
-  }
-
-  // 8. WORKSHEET / REVISION PLAN
-  if (q.includes('worksheet') || q.includes('revision plan') || q.includes('lesson plan') || q.includes('study plan')) {
-    return `**Revision Plan & Draft Worksheet: ${className}**\n\n` +
-      `• **Section A (10 Marks)**: Core Definitions & Key Terminology\n` +
-      `• **Section B (15 Marks)**: Process Diagrams & Factor Analysis\n` +
-      `• **Section C (15 Marks)**: Analytical Problem Solving\n\n` +
-      `*Ready for teacher review before exporting or printing.*`;
-  }
-
-  // 9. ATTENDANCE DATA
-  if (q.includes('attendance') || q.includes('present') || q.includes('absentee')) {
-    const count = students.length || 35;
-    return `**Attendance Data for ${className}**\n\n` +
-      `• **Class Average**: 93.4%\n` +
-      `• **Present Today**: ${Math.round(count * 0.93)} of ${count} students\n` +
-      `• **Absent Today**: ${Math.round(count * 0.07)} student(s)\n\n` +
-      `Attendance records are synced with parent notification logs.`;
-  }
-
-  // 10. SCHOOL ADMIN DASHBOARD
-  if (role === 'admin' || (q.includes('admin') && !q.includes('announcement')) || q.includes('workload')) {
-    const teacherList = adminData.teachers || [
-      { name: 'Anita Sharma', subject: 'Biology' },
-      { name: 'Daniel Joseph', subject: 'Physics' },
-      { name: 'Priya Nair', subject: 'Chemistry' }
-    ];
-    return `**School Administration Overview for ${schoolName}**\n\n` +
-      `• **Active Teachers**: ${teacherList.length} staff members\n` +
-      `• **Enrolled Students**: ${students.length || 642}\n` +
-      `• **Active Classes**: ${classes.length || 27}\n` +
-      `• **School Academic Average**: 81.6%`;
-  }
-
-  // 11. STUDENT REVISION TODAY
-  if (q.includes('revise today') || q.includes('what should i revise') || q.includes('study schedule')) {
-    return `**Personalized Study Plan for Today**\n\n` +
-      `1. **3:30 PM - 4:15 PM**: ${activeClass?.subject || 'Biology'} — Core concept review & practice test\n` +
-      `2. **4:30 PM - 5:15 PM**: Complete pending homework assignments\n` +
-      `3. **5:15 PM - 5:30 PM**: Review teacher feedback notes in your Feedback tab.`;
-  }
-
-  // 12. UNMATCHED CUSTOM QUERY -> RETURN NULL TO TRIGGER LIVE SERVER LLM OR DYNAMIC WORKSPACE SUMMARY
+  // --- Everything else → send to LLM ---
   return null;
 }
 
@@ -418,24 +406,39 @@ async function streamAssistantReply({ token, payload, onEvent }) {
   }
 }
 
+/**
+ * Builds a real-time data context summary for the LLM fallback.
+ * Uses actual workspace data only — no fake numbers.
+ */
 function buildWorkspaceDataSummary(query, role, workspace, currentClass, page) {
   const students = workspace?.students || workspace?.adminData?.students || [];
   const homework = workspace?.homework || [];
   const quizzes = workspace?.quizzes || [];
   const tests = workspace?.tests || workspace?.assessments || [];
+  const feedback = workspace?.feedback || workspace?.voiceFeedback || [];
+  const resources = workspace?.resources || [];
   const activeClass = currentClass || workspace?.classes?.[0] || null;
-  const className = activeClass ? `${activeClass.name}` : 'Classroom';
+  const className = activeClass
+    ? `${activeClass.name}${activeClass.subject ? ` (${activeClass.subject})` : ''}`
+    : 'your workspace';
 
-  const totalSubmissions = homework.reduce((acc, h) => acc + (h.submissions?.length || 0), 0) +
-                           quizzes.reduce((acc, q) => acc + (q.submissions?.length || 0), 0);
+  const totalSubmissions = [
+    ...homework.flatMap(h => h.submissions || []),
+    ...quizzes.flatMap(q => q.submissions || []),
+    ...tests.flatMap(t => t.submissions || [])
+  ].length;
 
-  return `Based on live ${className} (${page}) workspace database:\n\n` +
-    `• **Enrolled Students**: ${students.length}\n` +
-    `• **Homework Items**: ${homework.length}\n` +
+  const pendingHw = homework.filter(h => h.status !== 'Completed' && h.status !== 'archived').length;
+
+  return `**Live Workspace Data — ${className} (${page})**\n\n` +
+    `• **Students Enrolled**: ${students.length}\n` +
+    `• **Homework Assigned**: ${homework.length} (${pendingHw} active)\n` +
     `• **Practice Quizzes**: ${quizzes.length}\n` +
     `• **Formal Assessments**: ${tests.length}\n` +
-    `• **Total Student Submissions**: ${totalSubmissions}\n\n` +
-    `All workspace data is live and updated in real-time.`;
+    `• **Feedback Notes**: ${feedback.length}\n` +
+    `• **Study Resources**: ${resources.length}\n` +
+    `• **Total Submissions**: ${totalSubmissions}\n\n` +
+    `I analyzed your live dashboard data above. For more detailed insights, please connect your school account so I can access the full database.`;
 }
 
 export default function AskAiPanel({ open, onClose, role, workspace, page, activeClass, authToken, configured }) {

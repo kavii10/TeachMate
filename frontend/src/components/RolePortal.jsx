@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, ArrowUpRight, BarChart3, BookOpen, CalendarCheck, CheckCircle2, FileText, GraduationCap, MessageSquare, School, Users, Play, Volume2, Award, Sparkles, Send, Download, Paperclip, X, Check, Search, Mic, Bell, Plus, Copy, RefreshCw, Lock, Unlock, MoreHorizontal, Edit3, Trash2 } from 'lucide-react';
 import { roleLabels } from '../data.js';
 import { apiRequest } from '../lib/api.js';
-import { findDemoClass, addStudentToDemoClass, registerDemoClass, syncSubmissionToAccounts } from '../lib/storage.js';
+import { findDemoClass, addStudentToDemoClass, registerDemoClass, syncSubmissionToAccounts, syncClassCollection } from '../lib/storage.js';
 import logoLight from '../assets/teachmate-logo-light.jpeg';
 import logoDark from '../assets/teachmate-logo-dark.jpeg';
 
@@ -842,18 +842,18 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
         <article className="card workspace-table">
           <CardHeader eyebrow="STUDY MATERIALS" title="Shared Class Resources" />
           <div style={{ display: 'grid', gap: '10px', marginTop: '15px' }}>
-            {resources.filter(r => !r.classId || r.classId === classRecord.id).map(r => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', border: '1px solid var(--line)', borderRadius: '8px' }}>
+            {totalResources.map(r => (
+              <div key={r.id || r.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', border: '1px solid var(--line)', borderRadius: '8px' }}>
                 <div>
                   <b>{r.name}</b>
-                  <small style={{ display: 'block', color: 'var(--muted)', fontSize: '10px' }}>{r.type} &middot; {r.fileName}</small>
+                  <small style={{ display: 'block', color: 'var(--muted)', fontSize: '10px' }}>{r.type} &middot; {r.fileName || r.subject || ''}</small>
                 </div>
                 <button className="button subtle" onClick={() => r.fileUrl ? window.open(r.fileUrl, '_blank') : alert(`Opening ${r.name}`)}>
                   <Download size={13} /> Download
                 </button>
               </div>
             ))}
-            {resources.filter(r => !r.classId || r.classId === classRecord.id).length === 0 && (
+            {totalResources.length === 0 && (
               <p className="workspace-empty">No learning resources shared by your teacher yet.</p>
             )}
           </div>
@@ -865,9 +865,9 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
           <CardHeader eyebrow="CLASS MESSAGES" title={`Conversation with your Teacher`} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '300px', overflowY: 'auto', padding: '12px', background: 'var(--soft)', borderRadius: '8px', margin: '14px 0' }}>
             {storedMessages.map((m, idx) => (
-              <div key={idx} style={{ alignSelf: m.from === 'me' ? 'flex-end' : 'flex-start', maxWidth: '75%', padding: '10px 14px', borderRadius: '12px', background: m.from === 'me' ? '#4f46e5' : 'var(--surface)', color: m.from === 'me' ? '#fff' : 'var(--text)', border: m.from === 'me' ? 'none' : '1px solid var(--line)' }}>
+              <div key={m.id || idx} style={{ alignSelf: m.from === 'me' ? 'flex-end' : 'flex-start', maxWidth: '75%', padding: '10px 14px', borderRadius: '12px', background: m.from === 'me' ? '#4f46e5' : 'var(--surface)', color: m.from === 'me' ? '#fff' : 'var(--text)', border: m.from === 'me' ? 'none' : '1px solid var(--line)' }}>
                 <p style={{ margin: 0, fontSize: '12px' }}>{m.text}</p>
-                <small style={{ display: 'block', textAlign: 'right', fontSize: '9px', opacity: 0.8, marginTop: '4px' }}>{m.time}</small>
+                <small style={{ display: 'block', textAlign: 'right', fontSize: '9px', opacity: 0.8, marginTop: '4px' }}>{m.senderName ? `${m.senderName} · ` : ''}{m.time}</small>
               </div>
             ))}
           </div>

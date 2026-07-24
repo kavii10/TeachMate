@@ -174,58 +174,67 @@ export function syncClassCollection(classCode, collectionKey, items) {
   const registry = loadClassRegistry();
   const demoRecord = findDemoClass(normalized) || { joinCode: normalized };
 
-  // 1. Update Class Registry
-  const updatedRecord = {
-    ...demoRecord,
-    [collectionKey]: items
-  };
+  // 1. Update Class Registry under both keys
+  const updatedRecord = { ...demoRecord, [collectionKey]: items };
   registry[normalized] = updatedRecord;
-  if (demoRecord.joinCode) registry[demoRecord.joinCode] = updatedRecord;
+  if (demoRecord.joinCode && demoRecord.joinCode !== normalized) {
+    registry[demoRecord.joinCode] = updatedRecord;
+  }
   saveClassRegistry(registry);
 
-  // 2. Sync to all demo accounts in localStorage
+  // 2. Snapshot all localStorage keys FIRST to avoid index-shift bug
+  const allKeys = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed) {
-              const currentCollection = parsed[collectionKey] || [];
-              const otherItems = currentCollection.filter(item => {
-                const itemCode = normalizeClassId(item.classId || item.joinCode);
-                return itemCode && itemCode !== normalized && item.className !== demoRecord.name;
-              });
-
-              const mergedItems = items.map(newItem => {
-                const existingItem = currentCollection.find(ex => ex.id === newItem.id || ex.title === newItem.title);
-                if (!existingItem) return newItem;
-                const existingSubs = existingItem.submissions || [];
-                const newSubs = newItem.submissions || [];
-                const subMap = new Map();
-                [...existingSubs, ...newSubs].forEach(s => {
-                  if (s && s.studentId) subMap.set(s.studentId, s);
-                });
-                return {
-                  ...existingItem,
-                  ...newItem,
-                  status: newItem.status || existingItem.status,
-                  submissions: Array.from(subMap.values())
-                };
-              });
-
-              localStorage.setItem(key, JSON.stringify({
-                ...parsed,
-                [collectionKey]: [...mergedItems, ...otherItems]
-              }));
-            }
-          } catch (_err) {}
-        }
-      }
+      const k = localStorage.key(i);
+      if (k) allKeys.push(k);
     }
   } catch (_e) {}
+
+  // 3. Push update to every demo account
+  for (const key of allKeys) {
+    if (!key.startsWith('teachmate:demo:') && !key.startsWith('teachmate_account_')) continue;
+    // Skip backup keys and the class registry itself
+    if (key.endsWith(':backup') || key === 'teachmate:demo:classes') continue;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') continue;
+
+      // Only touch accounts whose data touches this class
+      const currentCollection = parsed[collectionKey] || [];
+      const isRelevant =
+        items.length > 0 ||
+        currentCollection.some(item => {
+          const code = normalizeClassId(item.classId || item.joinCode || '');
+          return code === normalized || item.className === demoRecord.name;
+        });
+      if (!isRelevant) continue;
+
+      // Items not belonging to this class are kept as-is
+      const otherItems = currentCollection.filter(item => {
+        const code = normalizeClassId(item.classId || item.joinCode || '');
+        return code && code !== normalized && item.className !== demoRecord.name;
+      });
+
+      // Merge submissions from existing items with new items
+      const mergedItems = items.map(newItem => {
+        const existing = currentCollection.find(ex => ex.id === newItem.id || ex.title === newItem.title);
+        if (!existing) return newItem;
+        const subMap = new Map();
+        [...(existing.submissions || []), ...(newItem.submissions || [])].forEach(s => {
+          if (s && s.studentId) subMap.set(s.studentId, s);
+        });
+        return { ...existing, ...newItem, submissions: Array.from(subMap.values()) };
+      });
+
+      localStorage.setItem(key, JSON.stringify({
+        ...parsed,
+        [collectionKey]: [...mergedItems, ...otherItems]
+      }));
+    } catch (_err) {}
+  }
 }
 
 export function syncSubmissionToAccounts(classCode, collectionKey, itemId, itemTitle, submissionRecord) {
