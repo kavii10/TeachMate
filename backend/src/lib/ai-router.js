@@ -4,6 +4,7 @@ import { hasServiceRoleKey, supabaseAdmin } from './supabase.js';
 
 const providerConfig = {
   gemini: () => env.GEMINI_API_KEY && env.GEMINI_MODEL && { key: env.GEMINI_API_KEY, model: env.GEMINI_MODEL },
+  openai: () => env.OPENAI_API_KEY && env.OPENAI_MODEL && { key: env.OPENAI_API_KEY, model: env.OPENAI_MODEL },
   openrouter: () => env.OPENROUTER_API_KEY && env.OPENROUTER_MODEL && { key: env.OPENROUTER_API_KEY, model: env.OPENROUTER_MODEL },
   groq: () => env.GROQ_API_KEY && env.GROQ_MODEL && { key: env.GROQ_API_KEY, model: env.GROQ_MODEL }
 };
@@ -53,7 +54,11 @@ async function callGemini({ system, prompt, schema }) {
 
 async function callOpenAiCompatible(provider, { system, prompt, schema }) {
   const config = providerConfig[provider]();
-  const endpoint = provider === 'openrouter' ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.groq.com/openai/v1/chat/completions';
+  const endpoint = provider === 'openrouter'
+    ? 'https://openrouter.ai/api/v1/chat/completions'
+    : provider === 'openai'
+      ? 'https://api.openai.com/v1/chat/completions'
+      : 'https://api.groq.com/openai/v1/chat/completions';
   const appReferer = env.APP_ORIGIN.split(',')[0].trim();
   const body = await requestJson(endpoint, {
     method: 'POST',
@@ -76,7 +81,11 @@ async function callTextGemini({ system, prompt }) {
 
 async function callTextOpenAiCompatible(provider, { system, prompt }) {
   const config = providerConfig[provider]();
-  const endpoint = provider === 'openrouter' ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.groq.com/openai/v1/chat/completions';
+  const endpoint = provider === 'openrouter'
+    ? 'https://openrouter.ai/api/v1/chat/completions'
+    : provider === 'openai'
+      ? 'https://api.openai.com/v1/chat/completions'
+      : 'https://api.groq.com/openai/v1/chat/completions';
   const appReferer = env.APP_ORIGIN.split(',')[0].trim();
   const body = await requestJson(endpoint, {
     method: 'POST',

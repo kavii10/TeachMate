@@ -1136,7 +1136,20 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
 
     let basePool = [];
 
-    if (lowerTopic.includes('photosynthesis') || lowerTopic.includes('plant') || lowerTopic.includes('botany')) {
+    if (lowerTopic.includes('bacteri') || lowerTopic.includes('backteri') || lowerTopic.includes('microbiol') || lowerTopic.includes('germ')) {
+      basePool = [
+        { type: 'MCQ', prompt: 'Which primary structural feature classifies bacteria as prokaryotic organisms?', options: ['Absence of a membrane-bound nucleus', 'Presence of mitochondria', 'Chitin cell wall', 'Linear eukaryotic chromosomes'], answer: 'Absence of a membrane-bound nucleus', explanation: 'Prokaryotes like bacteria lack a membrane-bound nucleus; genetic material resides in the nucleoid.' },
+        { type: 'Fill Blank', prompt: 'The primary process by which single-celled bacteria replicate asexual daughter cells is called binary _______.', options: [], answer: 'fission', explanation: 'Binary fission allows bacterial cells to duplicate DNA and split into two identical cells.' },
+        { type: 'MCQ', prompt: 'Which unique chemical component forms the rigid structural lattice of bacterial cell walls?', options: ['Peptidoglycan (murein)', 'Cellulose', 'Chitin', 'Glycogen'], answer: 'Peptidoglycan (murein)', explanation: 'Peptidoglycan is a mesh-like polymer of sugars and amino acids unique to bacterial cell walls.' },
+        { type: 'Fill Blank', prompt: 'The differential staining technique that divides bacteria into two major groups based on cell wall thickness is the _______ stain.', options: [], answer: 'Gram', explanation: 'The Gram stain differentiates Gram-positive (thick peptidoglycan) from Gram-negative bacteria.' },
+        { type: 'MCQ', prompt: 'Which specialized whip-like appendage enables directional locomotion (chemotaxis) in motile bacteria?', options: ['Flagella', 'Cilia', 'Pseudopodia', 'Pili'], answer: 'Flagella', explanation: 'Rotational flagella propel bacterial cells toward favorable chemical gradients.' },
+        { type: 'Fill Blank', prompt: 'Dormant, highly resistant structures formed by certain bacteria to survive heat and radiation are called _______.', options: [], answer: 'endospores', explanation: 'Endospores preserve bacterial genetic material during harsh environmental stress.' },
+        { type: 'MCQ', prompt: 'Which metabolic class of bacteria requires atmospheric oxygen for cellular respiration?', options: ['Obligate aerobes', 'Obligate anaerobes', 'Facultative anaerobes', 'Microaerophiles'], answer: 'Obligate aerobes', explanation: 'Obligate aerobes depend on molecular oxygen as the final electron acceptor in respiration.' },
+        { type: 'Fill Blank', prompt: 'Small, circular extrachromosomal DNA molecules found in bacteria that often carry antibiotic resistance genes are called _______.', options: [], answer: 'plasmids', explanation: 'Plasmids can replicate independently and be transferred between bacteria via conjugation.' },
+        { type: 'MCQ', prompt: 'Which class of medical treatments selectively targets bacterial cell walls or ribosomes without harming human cells?', options: ['Antibiotics', 'Antivirals', 'Antifungals', 'Analgesics'], answer: 'Antibiotics', explanation: 'Antibiotics inhibit bacterial cell wall synthesis or 70S ribosomal protein translation.' },
+        { type: 'Fill Blank', prompt: 'Bacteria that fix atmospheric nitrogen gas into soil ammonia for plant absorption are called _______-fixing bacteria.', options: [], answer: 'nitrogen', explanation: 'Nitrogen-fixing bacteria like Rhizobium convert N2 gas into usable agricultural nutrients.' }
+      ];
+    } else if (lowerTopic.includes('photosynthesis') || lowerTopic.includes('plant') || lowerTopic.includes('botany')) {
       basePool = [
         { type: 'MCQ', prompt: 'Which primary pigment in plants absorbs light energy for photosynthesis?', options: ['Chlorophyll a', 'Carotenoid', 'Anthocyanin', 'Xanthophyll'], answer: 'Chlorophyll a', explanation: 'Chlorophyll a absorbs blue-violet and red light wavelengths during photosynthesis.' },
         { type: 'Fill Blank', prompt: 'The microscopic pores on plant leaves that regulate gas exchange are called _______.', options: [], answer: 'stomata', explanation: 'Stomata allow CO2 uptake and release of O2 and water vapor.' },
@@ -1177,38 +1190,126 @@ function ClassQuizModal({ classRecord, roster, updateWorkspace, onClose, onToast
       ];
     }
 
-    const result = [];
-    for (let i = 0; i < targetCount; i++) {
-      if (i < basePool.length) {
-        result.push({ id: `ai-q-${i}-${Date.now()}`, ...basePool[i] });
-      } else {
-        const isMcq = i % 2 === 0;
-        if (isMcq) {
-          result.push({
-            id: `ai-q-${i}-${Date.now()}`,
-            type: 'MCQ',
-            prompt: `Question ${i + 1}: What is a core principle in the analysis of ${cleanTopic}?`,
-            options: [
-              `Primary interaction law of ${cleanTopic}`,
-              `Secondary variable factor in ${cleanTopic}`,
-              `Inverse boundary state of ${cleanTopic}`,
-              `External control ratio of ${cleanTopic}`
-            ],
-            answer: `Primary interaction law of ${cleanTopic}`,
-            explanation: `Analysis of ${cleanTopic} requires applying core interaction laws and key principles.`
-          });
-        } else {
-          result.push({
-            id: `ai-q-${i}-${Date.now()}`,
-            type: 'Fill Blank',
-            prompt: `Question ${i + 1}: In study of ${cleanTopic}, the primary governing factor is called _______.`,
-            options: [],
-            answer: `${cleanTopic} parameter`,
-            explanation: `Accurate analysis of ${cleanTopic} relies on identifying primary governing parameters.`
-          });
-        }
+    const aspectTemplates = [
+      {
+        type: 'MCQ',
+        prompt: `Which statement best defines the fundamental concept of ${cleanTopic}?`,
+        options: [
+          `The core principles governing ${cleanTopic} and its properties`,
+          `An unrelated environmental factor in chemical equilibrium`,
+          `A obsolete historical hypothesis with no modern application`,
+          `A static mathematical constant without variable dependence`
+        ],
+        answer: `The core principles governing ${cleanTopic} and its properties`,
+        explanation: `Understanding ${cleanTopic} starts with its fundamental operational principles.`
+      },
+      {
+        type: 'Fill Blank',
+        prompt: `The foundational unit or primary governing law behind ${cleanTopic} is known as _______.`,
+        options: [],
+        answer: `${cleanTopic} principle`,
+        explanation: `Core studies in ${cleanTopic} center around its primary governing principles.`
+      },
+      {
+        type: 'MCQ',
+        prompt: `What is a practical application or real-world significance of studying ${cleanTopic}?`,
+        options: [
+          `Solving complex analytical problems and improving system efficiency`,
+          `Eliminating all energy expenditure in closed thermodynamic systems`,
+          `Bypassing fundamental physical laws of conservation`,
+          `Randomly altering baseline control measurements`
+        ],
+        answer: `Solving complex analytical problems and improving system efficiency`,
+        explanation: `${cleanTopic} is applied in practical contexts to evaluate and optimize outcomes.`
+      },
+      {
+        type: 'Fill Blank',
+        prompt: `In the systematic analysis of ${cleanTopic}, researchers evaluate key quantitative and qualitative _______.`,
+        options: [],
+        answer: 'variables',
+        explanation: 'Variables provide measurable indicators when evaluating topic behavior.'
+      },
+      {
+        type: 'MCQ',
+        prompt: `Which key factor directly influences the behavior and outcome of ${cleanTopic}?`,
+        options: [
+          `Environmental conditions and input parameters`,
+          `Geocentric orbit velocities`,
+          `Subatomic antimatter decay rates`,
+          `Tidal friction in subterranean aquifers`
+        ],
+        answer: `Environmental conditions and input parameters`,
+        explanation: `Input parameters and surrounding conditions dictate how ${cleanTopic} functions.`
+      },
+      {
+        type: 'Fill Blank',
+        prompt: `The controlled standard used to compare changes during an experiment on ${cleanTopic} is called a _______.`,
+        options: [],
+        answer: 'control',
+        explanation: 'A control baseline ensures accurate comparisons during analysis.'
+      },
+      {
+        type: 'MCQ',
+        prompt: `How is data regarding ${cleanTopic} typically categorized and interpreted?`,
+        options: [
+          `Through comparative analysis and evidence-based metrics`,
+          `By arbitrary anecdotal speculation`,
+          `Using unverified historical legends`,
+          `Through random coin flips`
+        ],
+        answer: `Through comparative analysis and evidence-based metrics`,
+        explanation: `Rigorous analysis of ${cleanTopic} relies on empirical metrics.`
+      },
+      {
+        type: 'Fill Blank',
+        prompt: `The process of breaking down ${cleanTopic} into smaller components for detailed study is called _______.`,
+        options: [],
+        answer: 'analysis',
+        explanation: 'Systematic analysis decomposes complex topics into essential elements.'
+      },
+      {
+        type: 'MCQ',
+        prompt: `What common misconception should be avoided when studying ${cleanTopic}?`,
+        options: [
+          `Assuming correlation implies direct causation without controlled testing`,
+          `Expecting empirical evidence before forming a conclusion`,
+          `Verifying calculations using standard units`,
+          `Reviewing peer-reviewed literature`
+        ],
+        answer: `Assuming correlation implies direct causation without controlled testing`,
+        explanation: `Controlled verification is required to establish cause and effect in ${cleanTopic}.`
+      },
+      {
+        type: 'Fill Blank',
+        prompt: `The final synthesized conclusion drawn from investigating ${cleanTopic} must be supported by _______ evidence.`,
+        options: [],
+        answer: 'empirical',
+        explanation: 'Valid conclusions require verifiable empirical data.'
       }
+    ];
+
+    const fullPool = [...basePool, ...aspectTemplates];
+    const result = [];
+    const usedPrompts = new Set();
+
+    for (let i = 0; i < targetCount; i++) {
+      const template = fullPool[i % fullPool.length];
+      let promptText = template.prompt;
+      if (usedPrompts.has(promptText)) {
+        promptText = `[Part ${Math.floor(i / fullPool.length) + 1}] ${promptText}`;
+      }
+      usedPrompts.add(promptText);
+
+      result.push({
+        id: `ai-q-${i}-${Date.now()}`,
+        type: template.type,
+        prompt: promptText,
+        options: template.options || [],
+        answer: template.answer,
+        explanation: template.explanation
+      });
     }
+
     return result;
   }
 

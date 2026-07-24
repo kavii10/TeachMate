@@ -369,10 +369,8 @@ function analyzeWorkspaceAndReply(query, role, workspace, currentClass, page) {
       `3. **5:15 PM - 5:30 PM**: Review teacher feedback notes in your Feedback tab.`;
   }
 
-  // 12. FRESH, PRECISE DIRECT ANSWER FOR ANY OTHER QUESTION (NO TEMPLATES)
-  return `Regarding **"${text}"** in **${className}**:\n\n` +
-    `Your workspace is active with **${students.length || 32}** enrolled student(s), **${homework.length}** homework item(s), and **${resourcesList.length}** study resource(s).\n\n` +
-    `You can ask me to summarize homework submissions, list low attendance students, generate practice quizzes, or publish resources anytime!`;
+  // 12. UNMATCHED CUSTOM QUERY -> RETURN NULL TO TRIGGER LIVE SERVER LLM OR DYNAMIC WORKSPACE SUMMARY
+  return null;
 }
 
 async function streamAssistantReply({ token, payload, onEvent }) {
@@ -418,6 +416,26 @@ async function streamAssistantReply({ token, payload, onEvent }) {
       }
     }
   }
+}
+
+function buildWorkspaceDataSummary(query, role, workspace, currentClass, page) {
+  const students = workspace?.students || workspace?.adminData?.students || [];
+  const homework = workspace?.homework || [];
+  const quizzes = workspace?.quizzes || [];
+  const tests = workspace?.tests || workspace?.assessments || [];
+  const activeClass = currentClass || workspace?.classes?.[0] || null;
+  const className = activeClass ? `${activeClass.name}` : 'Classroom';
+
+  const totalSubmissions = homework.reduce((acc, h) => acc + (h.submissions?.length || 0), 0) +
+                           quizzes.reduce((acc, q) => acc + (q.submissions?.length || 0), 0);
+
+  return `Based on live ${className} (${page}) workspace database:\n\n` +
+    `• **Enrolled Students**: ${students.length}\n` +
+    `• **Homework Items**: ${homework.length}\n` +
+    `• **Practice Quizzes**: ${quizzes.length}\n` +
+    `• **Formal Assessments**: ${tests.length}\n` +
+    `• **Total Student Submissions**: ${totalSubmissions}\n\n` +
+    `All workspace data is live and updated in real-time.`;
 }
 
 export default function AskAiPanel({ open, onClose, role, workspace, page, activeClass, authToken, configured }) {
@@ -773,8 +791,8 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
         }
       }
 
-      // 3. Fallback response
-      const fallbackReply = `I have analyzed your ${page} workspace data. Everything is synced and up to date!`;
+      // 3. Fallback response with live dynamic database metrics
+      const fallbackReply = buildWorkspaceDataSummary(cleanText, role, workspace, currentClass, page);
       replyText = fallbackReply;
       providerName = 'TeachMate AI';
       updateAssistantMsg({
@@ -785,7 +803,7 @@ export default function AskAiPanel({ open, onClose, role, workspace, page, activ
       setVoiceReply({ content: fallbackReply, provider: providerName });
       speakResponse(fallbackReply);
     } catch (err) {
-      const localFallback = analyzeWorkspaceAndReply(cleanText, role, workspace, currentClass, page) || `I have analyzed your ${page} workspace data. All records are up to date!`;
+      const localFallback = buildWorkspaceDataSummary(cleanText, role, workspace, currentClass, page);
       replyText = localFallback;
       providerName = 'TeachMate AI';
       updateAssistantMsg({

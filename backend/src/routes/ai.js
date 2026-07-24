@@ -13,10 +13,30 @@ const assistantRequestSchema = z.object({
     subject: z.string().max(100).optional(),
     grade: z.string().max(40).optional()
   }).nullable().optional(),
+  workspaceContext: z.record(z.any()).nullable().optional(),
   history: z.array(z.object({
     role: z.enum(['user', 'assistant']),
     content: z.string().max(4000)
   })).max(12).default([])
+}).passthrough();
+
+const quizRequestSchema = z.object({
+  topic: z.string().trim().min(1).max(200),
+  difficulty: z.string().trim().default('medium'),
+  questionCount: z.coerce.number().int().min(1).max(25).default(5)
+});
+
+const quizQuestionSchema = z.object({
+  type: z.string().optional().default('MCQ'),
+  prompt: z.string().trim().min(1),
+  options: z.array(z.string()).optional().default([]),
+  answer: z.string().trim().min(1),
+  explanation: z.string().trim().optional().default('')
+});
+
+const quizResponseSchema = z.object({
+  title: z.string().optional().default('Practice Quiz'),
+  questions: z.array(quizQuestionSchema).min(1)
 });
 
 const parseStoredWorkspacePayload = (value) => {
@@ -368,15 +388,16 @@ User Question: ${input.message}`;
   }
 });
 
-router.post('/quiz-generator', requireRole('teacher', 'school_admin'), async (req, res, next) => {
+router.post('/quiz-generator', requireRole('teacher', 'student', 'school_admin'), async (req, res, next) => {
   try {
     const input = quizRequestSchema.parse(req.body);
     const systemPrompt = `You are an expert curriculum author and master educator for TeachMate.
 Generate a highly accurate, subject-specific practice quiz on the topic "${input.topic}".
 STRICT INSTRUCTIONS:
-- Every single question MUST directly test core concepts, definitions, formulas, or facts specifically about "${input.topic}".
-- Never use generic placeholder templates (do NOT generate questions like "Which of the following describes the principle of topic?").
-- For MCQ questions: provide exactly 4 distinct, plausible option choices (A, B, C, D) with 1 clear correct answer.
+- Generate EXACTLY ${input.questionCount} unique, non-repeating questions specifically testing core concepts, facts, definitions, and applications of "${input.topic}".
+- EVERY question must be completely unique with ZERO repetitions in prompts or choices.
+- Do NOT use generic templates like "What is a core principle in the analysis of..." or generic option choices like "Primary interaction law of...".
+- For MCQ questions: provide exactly 4 distinct, plausible, topic-specific option choices (A, B, C, D) with 1 clear correct answer.
 - For Fill Blank questions: leave options as empty array [] and set answer to the exact missing term.
 - Include a concise, educational explanation for why the answer is correct.`;
 
@@ -384,7 +405,29 @@ STRICT INSTRUCTIONS:
 Difficulty: ${input.difficulty}
 Question Count: ${input.questionCount}
 
-Create a practice quiz titled appropriately for "${input.topic}" with ${input.questionCount} questions.`;
+Return a practice quiz with title and ${input.questionCount} questions.`;
+
+    const jsonSchema = {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        questions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string' },
+              prompt: { type: 'string' },
+              options: { type: 'array', items: { type: 'string' } },
+              answer: { type: 'string' },
+              explanation: { type: 'string' }
+            },
+            required: ['prompt', 'answer']
+          }
+        }
+      },
+      required: ['questions']
+    };
 
     const output = await generateStructured({
       schoolId: req.auth.profile.school_id,
@@ -392,7 +435,7 @@ Create a practice quiz titled appropriately for "${input.topic}" with ${input.qu
       purpose: 'quiz_generation',
       system: systemPrompt,
       prompt,
-      schema: { type: 'object' },
+      schema: jsonSchema,
       validate: quizResponseSchema
     });
     res.status(200).json({ draft: output.result, meta: { provider: output.provider } });

@@ -22,12 +22,14 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
   GEMINI_API_KEY: optionalSecret,
   GEMINI_MODEL: z.string().trim().default('gemini-2.5-flash'),
+  OPENAI_API_KEY: optionalSecret,
+  OPENAI_MODEL: z.string().trim().default('gpt-4o-mini'),
   OPENROUTER_API_KEY: optionalSecret,
   OPENROUTER_MODEL: z.string().trim().default('google/gemini-2.5-flash'),
   GROQ_API_KEY: optionalSecret,
   GROQ_MODEL: z.string().trim().default('llama-3.3-70b-versatile'),
   GROQ_TRANSCRIPTION_MODEL: z.string().trim().default('whisper-large-v3-turbo'),
-  AI_PROVIDER_ORDER: z.string().default('gemini,openrouter,groq'),
+  AI_PROVIDER_ORDER: z.string().default('gemini,openai,openrouter,groq'),
   AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
   MAX_AUDIO_UPLOAD_MB: z.coerce.number().int().min(1).max(100).default(20)
 }).refine(data => data.SUPABASE_PUBLISHABLE_KEY || data.SUPABASE_ANON_KEY, {
