@@ -355,8 +355,15 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
   rawTests.forEach(t => { if (t) testMap.set(t.id || t.title, { ...testMap.get(t.id || t.title), ...t }); });
   const tests = Array.from(testMap.values());
 
-  const feedback = workspace.feedback || [];
-  const resources = workspace.resources || [];
+  const rawFeedback = [...(demoClassRecord?.feedback || []), ...(workspace.feedback || [])];
+  const fbMap = new Map();
+  rawFeedback.forEach(f => { if (f) fbMap.set(f.id || f.title || f.summary, f); });
+  const feedback = Array.from(fbMap.values());
+
+  const rawResources = [...(demoClassRecord?.resources || []), ...(workspace.resources || [])];
+  const resMap = new Map();
+  rawResources.forEach(r => { if (r) resMap.set(r.id || r.name, r); });
+  const resources = Array.from(resMap.values());
 
   const totalHw = homework.filter(hw =>
     !hw.classId ||
@@ -385,11 +392,26 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
     test.joinCode === classRecord.joinCode ||
     test.className === classRecord.name
   );
-  const studentFeedbacks = feedback.filter(f => f.studentId === studentId || f.classId === classRecord.id || f.classId === classRecord.joinCode);
 
-  const storedMessages = workspace.chatThreads?.[classRecord.id] || [
-    { from: 'them', text: `Welcome to ${classRecord.name}! Ask any questions here regarding ${classRecord.subject}.`, time: '09:00 AM' }
-  ];
+  const totalResources = resources.filter(r =>
+    !r.classId ||
+    r.classId === classRecord.id ||
+    r.classId === classRecord.joinCode ||
+    r.joinCode === classRecord.joinCode ||
+    r.className === classRecord.name ||
+    r.grade === classRecord.name ||
+    r.subject === classRecord.subject
+  );
+
+  const studentFeedbacks = feedback.filter(f => f.studentId === studentId || !f.classId || f.classId === classRecord.id || f.classId === classRecord.joinCode);
+
+  const rawMessages = [...(demoClassRecord?.messages || []), ...(workspace.chatThreads?.[classRecord.id] || [])];
+  const msgMap = new Map();
+  rawMessages.forEach(m => { if (m) msgMap.set(m.id || `${m.from}-${m.text}`, m); });
+  const storedMessages = Array.from(msgMap.values());
+  if (storedMessages.length === 0) {
+    storedMessages.push({ id: 'm0', from: 'them', text: `Welcome to ${classRecord.name}! Ask any questions here regarding ${classRecord.subject}.`, time: '09:00 AM' });
+  }
 
   function handleSubmitHomework(event) {
     event.preventDefault();
@@ -397,26 +419,24 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
 
     const newSubmission = {
       studentId,
-      studentName: workspace.profile.fullName || 'Student',
-      submittedAt: new Date().toLocaleDateString(),
+      studentName: workspace.profile?.fullName || 'Student',
+      submittedAt: new Date().toISOString(),
       content: hwContent.trim(),
       attachmentUrl: hwAttachment.trim() || null,
-      status: 'Submitted'
+      status: 'Submitted',
+      score: null
     };
 
     updateWorkspace(current => ({
       ...current,
-      homework: (current.homework || []).map(h => {
-        if (h.id !== selectedHw.id && h.title !== selectedHw.title) return h;
-        const otherSubmissions = (h.submissions || []).filter(s => s.studentId !== studentId);
-        return {
-          ...h,
-          submissions: [...otherSubmissions, newSubmission]
-        };
+      homework: (current.homework || []).map(hw => {
+        if (hw.id !== selectedHw.id && hw.title !== selectedHw.title) return hw;
+        const previous = hw.submissions || [];
+        const filtered = previous.filter(s => s.studentId !== studentId);
+        return { ...hw, submissions: [...filtered, newSubmission] };
       })
     }));
 
-    // Synchronize homework submission to class registry and teacher accounts
     try {
       const classCode = selectedHw.classId || classRecord?.joinCode || classRecord?.id;
       syncSubmissionToAccounts(classCode, 'homework', selectedHw.id, selectedHw.title, newSubmission);
@@ -432,18 +452,24 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
     if (!messageText.trim()) return;
 
     const newMsg = {
+      id: `msg-${Date.now()}`,
       from: 'me',
+      senderName: workspace.profile?.fullName || 'Student',
       text: messageText.trim(),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
+    const updated = [...storedMessages, newMsg];
     updateWorkspace(current => ({
       ...current,
       chatThreads: {
         ...(current.chatThreads || {}),
-        [classRecord.id]: [...storedMessages, newMsg]
+        [classRecord.id]: updated
       }
     }));
+
+    const classCode = classRecord.joinCode || classRecord.id;
+    syncClassCollection(classCode, 'messages', updated);
     setMessageText('');
   }
 
@@ -1077,7 +1103,19 @@ function AssessmentsView({ workspace }) {
 }
 
 function FeedbackView({ workspace, authToken }) {
-  const feedback = workspace.feedback || [];
+  const studentClasses = workspace.classes || [];
+  const fbMap = new Map();
+  studentClasses.forEach(cls => {
+    const demoRec = findDemoClass(cls.joinCode || cls.id);
+    const classFb = [...(demoRec?.feedback || []), ...(workspace.feedback || [])];
+    classFb.forEach(f => {
+      if (f) fbMap.set(f.id || f.title || f.summary, f);
+    });
+  });
+  if (!fbMap.size) {
+    (workspace.feedback || []).forEach(f => { if (f) fbMap.set(f.id || f.title || f.summary, f); });
+  }
+  const feedback = Array.from(fbMap.values());
   const [voiceFeedback, setVoiceFeedback] = useState(() => (workspace.voiceFeedback || []).filter(item => item.studentId === workspace.profile?.id));
   const [voiceFeedbackError, setVoiceFeedbackError] = useState('');
 

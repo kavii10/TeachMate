@@ -855,10 +855,15 @@ function ClassResourceModal({ classRecord, updateWorkspace, onClose, onToast }) 
       fileName: fileName
     };
 
-    updateWorkspace(current => ({
-      ...current,
-      resources: [resource, ...(current.resources || [])]
-    }));
+    let updatedResources = [];
+    updateWorkspace(current => {
+      const list = current.resources || [];
+      updatedResources = [resource, ...list];
+      return { ...current, resources: updatedResources };
+    });
+
+    const classCode = classRecord.joinCode || classRecord.id;
+    syncClassCollection(classCode, 'resources', updatedResources.filter(r => !r.classId || r.classId === classRecord.id || r.grade === classRecord.name));
 
     onToast(`${resource.name} uploaded and shared with students.`);
     onClose();
@@ -3256,15 +3261,20 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
             authToken={authToken}
             onClose={() => setFeedbackTarget(null)}
             onPublished={feedback => {
-              updateWorkspace(current => ({
-                ...current,
-                voiceFeedback: [{
-                  ...feedback,
-                  studentId: feedbackTarget.studentId,
-                  studentName: feedbackTarget.studentName,
-                  classId: feedbackTarget.classId
-                }, ...(current.voiceFeedback || [])]
-              }));
+              const newRec = {
+                ...feedback,
+                studentId: feedbackTarget.studentId,
+                studentName: feedbackTarget.studentName,
+                classId: feedbackTarget.classId
+              };
+              let updatedFb = [];
+              updateWorkspace(current => {
+                const list = current.feedback || current.voiceFeedback || [];
+                updatedFb = [newRec, ...list];
+                return { ...current, feedback: updatedFb, voiceFeedback: updatedFb };
+              });
+              const classCode = classRecord.joinCode || classRecord.id;
+              syncClassCollection(classCode, 'feedback', updatedFb);
               onToast(`Voice feedback published to ${feedbackTarget.studentName}.`);
             }}
           />
