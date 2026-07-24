@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, ArrowUpRight, BarChart3, BookOpen, CalendarCheck, CheckCircle2, FileText, GraduationCap, MessageSquare, School, Users, Play, Volume2, Award, Sparkles, Send, Download, Paperclip, X, Check, Search, Mic, Bell, Plus, Copy, RefreshCw, Lock, Unlock, MoreHorizontal, Edit3, Trash2 } from 'lucide-react';
 import { roleLabels } from '../data.js';
 import { apiRequest } from '../lib/api.js';
-import { findDemoClass, addStudentToDemoClass } from '../lib/storage.js';
+import { findDemoClass, addStudentToDemoClass, registerDemoClass, syncSubmissionToAccounts } from '../lib/storage.js';
 import logoLight from '../assets/teachmate-logo-light.jpeg';
 import logoDark from '../assets/teachmate-logo-dark.jpeg';
 
@@ -336,9 +336,25 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
 
   const studentId = workspace.students?.find(s => s.name?.toLowerCase() === workspace.profile?.fullName?.toLowerCase())?.id || 's1';
 
-  const quizzes = workspace.quizzes || [];
-  const homework = workspace.homework || [];
-  const tests = workspace.tests || [];
+  const demoClassRecord = findDemoClass(classRecord.joinCode || classRecord.id);
+
+  // Merge workspace items with demo class registry
+  const rawQuizzes = [...(demoClassRecord?.quizzes || []), ...(workspace.quizzes || [])];
+  const rawHomework = [...(demoClassRecord?.homework || []), ...(workspace.homework || [])];
+  const rawTests = [...(demoClassRecord?.tests || []), ...(workspace.tests || [])];
+
+  const quizMap = new Map();
+  rawQuizzes.forEach(q => { if (q) quizMap.set(q.id || q.title, { ...quizMap.get(q.id || q.title), ...q }); });
+  const quizzes = Array.from(quizMap.values());
+
+  const hwMap = new Map();
+  rawHomework.forEach(h => { if (h) hwMap.set(h.id || h.title, { ...hwMap.get(h.id || h.title), ...h }); });
+  const homework = Array.from(hwMap.values());
+
+  const testMap = new Map();
+  rawTests.forEach(t => { if (t) testMap.set(t.id || t.title, { ...testMap.get(t.id || t.title), ...t }); });
+  const tests = Array.from(testMap.values());
+
   const feedback = workspace.feedback || [];
   const resources = workspace.resources || [];
 
@@ -347,12 +363,28 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
     hw.classId === classRecord.id ||
     hw.classId === classRecord.joinCode ||
     hw.joinCode === classRecord.joinCode ||
-    hw.className === classRecord.name
+    hw.className === classRecord.name ||
+    (hw.className && classRecord.name && hw.className.includes(classRecord.name))
   );
   const submittedHwCount = totalHw.filter(hw => hw.submissions?.some(s => s.studentId === studentId)).length;
   const homeworkProgress = totalHw.length ? Math.round((submittedHwCount / totalHw.length) * 100) : 100;
 
-  const assessments = tests.filter(test => !test.classId || test.classId === classRecord.id || test.joinCode === classRecord.joinCode || test.className === classRecord.name);
+  const totalQuizzes = quizzes.filter(q =>
+    !q.classId ||
+    q.classId === classRecord.id ||
+    q.classId === classRecord.joinCode ||
+    q.joinCode === classRecord.joinCode ||
+    q.className === classRecord.name ||
+    q.subject === classRecord.subject
+  );
+
+  const assessments = tests.filter(test =>
+    !test.classId ||
+    test.classId === classRecord.id ||
+    test.classId === classRecord.joinCode ||
+    test.joinCode === classRecord.joinCode ||
+    test.className === classRecord.name
+  );
   const studentFeedbacks = feedback.filter(f => f.studentId === studentId || f.classId === classRecord.id || f.classId === classRecord.joinCode);
 
   const storedMessages = workspace.chatThreads?.[classRecord.id] || [
@@ -365,7 +397,7 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
 
     const newSubmission = {
       studentId,
-      studentName: workspace.profile.fullName,
+      studentName: workspace.profile.fullName || 'Student',
       submittedAt: new Date().toLocaleDateString(),
       content: hwContent.trim(),
       attachmentUrl: hwAttachment.trim() || null,
@@ -374,8 +406,8 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
 
     updateWorkspace(current => ({
       ...current,
-      homework: current.homework.map(h => {
-        if (h.id !== selectedHw.id) return h;
+      homework: (current.homework || []).map(h => {
+        if (h.id !== selectedHw.id && h.title !== selectedHw.title) return h;
         const otherSubmissions = (h.submissions || []).filter(s => s.studentId !== studentId);
         return {
           ...h,
@@ -383,6 +415,12 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
         };
       })
     }));
+
+    // Synchronize homework submission to class registry and teacher accounts
+    try {
+      const classCode = selectedHw.classId || classRecord?.joinCode || classRecord?.id;
+      syncSubmissionToAccounts(classCode, 'homework', selectedHw.id, selectedHw.title, newSubmission);
+    } catch (_e) {}
 
     setHwContent('');
     setHwAttachment('');
@@ -463,56 +501,8 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
 
     // Synchronize submission to shared Demo Class Registry, global submission key, and saved teacher accounts
     try {
-      // 1. Save to dedicated global submissions key for maximum cross-session resilience
-      const globalSubKey1 = `teachmate:submissions:${quiz.id}`;
-      const globalSubKey2 = `teachmate:submissions:${quiz.title}`;
-      [globalSubKey1, globalSubKey2].forEach(k => {
-        try {
-          const prev = JSON.parse(localStorage.getItem(k) || '[]');
-          const clean = prev.filter(s => s.studentId !== studentId);
-          localStorage.setItem(k, JSON.stringify([...clean, submissionRecord]));
-        } catch (_e) {}
-      });
-
-      // 2. Update Demo Class Registry
       const targetClassCode = quiz.classId || classRecord?.joinCode || classRecord?.id;
-      const demoClassRecord = (targetClassCode && findDemoClass(targetClassCode)) || (classRecord?.joinCode && findDemoClass(classRecord.joinCode));
-      const activeQuizzes = demoClassRecord?.quizzes?.length ? demoClassRecord.quizzes : (workspace.quizzes || []);
-      const quizExistsInDemo = activeQuizzes.some(q => q.id === quiz.id || q.title === quiz.title);
-      
-      const updatedQuizzes = quizExistsInDemo
-        ? activeQuizzes.map(q => {
-            if (q.id !== quiz.id && q.title !== quiz.title) return q;
-            const others = (q.submissions || []).filter(s => s.studentId !== studentId);
-            return { ...q, submissions: [...others, submissionRecord] };
-          })
-        : [...activeQuizzes, { ...quiz, submissions: [submissionRecord] }];
-
-      if (demoClassRecord) {
-        registerDemoClass({ ...demoClassRecord, quizzes: updatedQuizzes });
-      } else if (classRecord?.joinCode) {
-        registerDemoClass({ ...classRecord, quizzes: updatedQuizzes });
-      }
-
-      // 3. Sync across all localStorage accounts matching teachmate:demo
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
-          const raw = localStorage.getItem(key);
-          if (raw && (raw.includes('"Teacher"') || raw.includes('"teacher"') || key.includes(':teacher'))) {
-            const parsed = JSON.parse(raw);
-            if (parsed) {
-              const currentQs = parsed.quizzes?.length ? parsed.quizzes : updatedQuizzes;
-              const teacherQuizzes = currentQs.map(q => {
-                if (q.id !== quiz.id && q.title !== quiz.title) return q;
-                const others = (q.submissions || []).filter(s => s.studentId !== studentId);
-                return { ...q, submissions: [...others, submissionRecord] };
-              });
-              localStorage.setItem(key, JSON.stringify({ ...parsed, quizzes: teacherQuizzes }));
-            }
-          }
-        }
-      }
+      syncSubmissionToAccounts(targetClassCode, 'quizzes', quiz.id, quiz.title, submissionRecord);
     } catch (_err) {}
   }
 
@@ -635,7 +625,7 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
         <article className="card workspace-table">
           <CardHeader eyebrow="PRACTICE QUIZZES" title="Classroom Quizzes" />
           <div style={{ display: 'grid', gap: '12px', marginTop: '15px' }}>
-            {quizzes.filter(q => !q.classId || q.classId === classRecord.id).map(quiz => {
+            {totalQuizzes.map(quiz => {
               const mySub = quiz.submissions?.find(s => s.studentId === studentId);
               return (
                 <div key={quiz.id} style={{ padding: '14px', border: '1px solid var(--line)', borderRadius: '10px', background: 'var(--soft)' }}>
@@ -795,7 +785,7 @@ function StudentClassWorkspace({ classRecord, onBack, authToken, workspace, upda
                 </div>
               );
             })}
-            {quizzes.filter(q => !q.classId || q.classId === classRecord.id).length === 0 && (
+            {totalQuizzes.length === 0 && (
               <p className="workspace-empty">No practice quizzes available yet.</p>
             )}
           </div>
@@ -946,7 +936,22 @@ function SettingsView({ role, workspace, theme, onTheme, onSignOut }) {
 }
 
 function HomeworkView({ workspace, setPage }) {
-  const homework = workspace.homework || [];
+  const studentClasses = workspace.classes || [];
+  const hwMap = new Map();
+  studentClasses.forEach(cls => {
+    const demoRec = findDemoClass(cls.joinCode || cls.id);
+    const classHw = [...(demoRec?.homework || []), ...(workspace.homework || [])];
+    classHw.forEach(h => {
+      if (h) {
+        const isForClass = !h.classId || h.classId === cls.id || h.classId === cls.joinCode || h.joinCode === cls.joinCode || h.className === cls.name;
+        if (isForClass) hwMap.set(h.id || h.title, h);
+      }
+    });
+  });
+  if (!hwMap.size) {
+    (workspace.homework || []).forEach(h => { if (h) hwMap.set(h.id || h.title, h); });
+  }
+  const homework = Array.from(hwMap.values());
   return (
     <div className="page role-page">
       <div className="page-heading">
@@ -1027,7 +1032,22 @@ function CalendarView({ role, workspace, setPage }) {
 }
 
 function AssessmentsView({ workspace }) {
-  const tests = workspace.tests || [];
+  const studentClasses = workspace.classes || [];
+  const testMap = new Map();
+  studentClasses.forEach(cls => {
+    const demoRec = findDemoClass(cls.joinCode || cls.id);
+    const classTests = [...(demoRec?.tests || []), ...(workspace.tests || [])];
+    classTests.forEach(t => {
+      if (t) {
+        const isForClass = !t.classId || t.classId === cls.id || t.classId === cls.joinCode || t.joinCode === cls.joinCode || t.className === cls.name;
+        if (isForClass) testMap.set(t.id || t.title, t);
+      }
+    });
+  });
+  if (!testMap.size) {
+    (workspace.tests || []).forEach(t => { if (t) testMap.set(t.id || t.title, t); });
+  }
+  const tests = Array.from(testMap.values());
   return (
     <div className="page role-page">
       <div className="page-heading">

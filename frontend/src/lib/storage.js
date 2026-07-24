@@ -168,6 +168,124 @@ export function addStudentToDemoClass(cleanCode, studentInfo) {
   return studentObj;
 }
 
+export function syncClassCollection(classCode, collectionKey, items) {
+  if (!classCode || !collectionKey) return;
+  const normalized = normalizeClassId(classCode);
+  const registry = loadClassRegistry();
+  const demoRecord = findDemoClass(normalized) || { joinCode: normalized };
+
+  // 1. Update Class Registry
+  const updatedRecord = {
+    ...demoRecord,
+    [collectionKey]: items
+  };
+  registry[normalized] = updatedRecord;
+  if (demoRecord.joinCode) registry[demoRecord.joinCode] = updatedRecord;
+  saveClassRegistry(registry);
+
+  // 2. Sync to all demo accounts in localStorage
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed) {
+              const currentCollection = parsed[collectionKey] || [];
+              const otherItems = currentCollection.filter(item => {
+                const itemCode = normalizeClassId(item.classId || item.joinCode);
+                return itemCode && itemCode !== normalized && item.className !== demoRecord.name;
+              });
+
+              const mergedItems = items.map(newItem => {
+                const existingItem = currentCollection.find(ex => ex.id === newItem.id || ex.title === newItem.title);
+                if (!existingItem) return newItem;
+                const existingSubs = existingItem.submissions || [];
+                const newSubs = newItem.submissions || [];
+                const subMap = new Map();
+                [...existingSubs, ...newSubs].forEach(s => {
+                  if (s && s.studentId) subMap.set(s.studentId, s);
+                });
+                return {
+                  ...existingItem,
+                  ...newItem,
+                  status: newItem.status || existingItem.status,
+                  submissions: Array.from(subMap.values())
+                };
+              });
+
+              localStorage.setItem(key, JSON.stringify({
+                ...parsed,
+                [collectionKey]: [...mergedItems, ...otherItems]
+              }));
+            }
+          } catch (_err) {}
+        }
+      }
+    }
+  } catch (_e) {}
+}
+
+export function syncSubmissionToAccounts(classCode, collectionKey, itemId, itemTitle, submissionRecord) {
+  if (!classCode || !collectionKey) return;
+  const normalized = normalizeClassId(classCode);
+  const registry = loadClassRegistry();
+  const demoRecord = findDemoClass(normalized);
+
+  // 1. Save to dedicated global submission keys
+  const globalSubKey1 = `teachmate:submissions:${collectionKey}:${itemId}`;
+  const globalSubKey2 = `teachmate:submissions:${collectionKey}:${itemTitle}`;
+  const globalSubKey3 = `teachmate:submissions:${itemId}`;
+  const globalSubKey4 = `teachmate:submissions:${itemTitle}`;
+  [globalSubKey1, globalSubKey2, globalSubKey3, globalSubKey4].forEach(k => {
+    try {
+      const prev = JSON.parse(localStorage.getItem(k) || '[]');
+      const clean = prev.filter(s => s.studentId !== submissionRecord.studentId);
+      localStorage.setItem(k, JSON.stringify([...clean, submissionRecord]));
+    } catch (_e) {}
+  });
+
+  // 2. Update Registry
+  if (demoRecord) {
+    const activeCollection = demoRecord[collectionKey] || [];
+    const updatedCollection = activeCollection.map(item => {
+      if (item.id !== itemId && item.title !== itemTitle) return item;
+      const others = (item.submissions || []).filter(s => s.studentId !== submissionRecord.studentId);
+      return { ...item, submissions: [...others, submissionRecord] };
+    });
+    const updatedRecord = { ...demoRecord, [collectionKey]: updatedCollection };
+    registry[normalized] = updatedRecord;
+    if (demoRecord.joinCode) registry[demoRecord.joinCode] = updatedRecord;
+    saveClassRegistry(registry);
+  }
+
+  // 3. Broadcast to all accounts in localStorage
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
+        const raw = localStorage.getItem(key);
+        if (raw && (raw.includes(`"${collectionKey}"`) || raw.includes(itemId) || raw.includes(itemTitle))) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed) {
+              const currentColl = parsed[collectionKey] || [];
+              const updatedColl = currentColl.map(item => {
+                if (item.id !== itemId && item.title !== itemTitle) return item;
+                const others = (item.submissions || []).filter(s => s.studentId !== submissionRecord.studentId);
+                return { ...item, submissions: [...others, submissionRecord] };
+              });
+              localStorage.setItem(key, JSON.stringify({ ...parsed, [collectionKey]: updatedColl }));
+            }
+          } catch (_err) {}
+        }
+      }
+    }
+  } catch (_e) {}
+}
+
 export function loadTheme() {
   return localStorage.getItem('teachmate:theme') || 'light';
 }
