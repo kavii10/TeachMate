@@ -270,29 +270,32 @@ export function syncSubmissionToAccounts(classCode, collectionKey, itemId, itemT
     saveClassRegistry(registry);
   }
 
-  // 3. Broadcast to all accounts in localStorage
+  // 3. Broadcast to all accounts in localStorage (snapshot keys first to avoid index-shift)
+  const allKeys = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith('teachmate:demo:') || key.startsWith('teachmate_account_'))) {
-        const raw = localStorage.getItem(key);
-        if (raw && (raw.includes(`"${collectionKey}"`) || raw.includes(itemId) || raw.includes(itemTitle))) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed) {
-              const currentColl = parsed[collectionKey] || [];
-              const updatedColl = currentColl.map(item => {
-                if (item.id !== itemId && item.title !== itemTitle) return item;
-                const others = (item.submissions || []).filter(s => s.studentId !== submissionRecord.studentId);
-                return { ...item, submissions: [...others, submissionRecord] };
-              });
-              localStorage.setItem(key, JSON.stringify({ ...parsed, [collectionKey]: updatedColl }));
-            }
-          } catch (_err) {}
-        }
-      }
+      const k = localStorage.key(i);
+      if (k) allKeys.push(k);
     }
   } catch (_e) {}
+
+  for (const key of allKeys) {
+    if (!key.startsWith('teachmate:demo:') && !key.startsWith('teachmate_account_')) continue;
+    if (key.endsWith(':backup') || key === 'teachmate:demo:classes') continue;
+    const raw = localStorage.getItem(key);
+    if (!raw || (!raw.includes(`"${collectionKey}"`) && !raw.includes(itemId) && !raw.includes(itemTitle))) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed) continue;
+      const currentColl = parsed[collectionKey] || [];
+      const updatedColl = currentColl.map(item => {
+        if (item.id !== itemId && item.title !== itemTitle) return item;
+        const others = (item.submissions || []).filter(s => s.studentId !== submissionRecord.studentId);
+        return { ...item, submissions: [...others, submissionRecord] };
+      });
+      localStorage.setItem(key, JSON.stringify({ ...parsed, [collectionKey]: updatedColl }));
+    } catch (_err) {}
+  }
 }
 
 export function loadTheme() {

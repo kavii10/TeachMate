@@ -2422,7 +2422,7 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                             <Button
                               variant="primary"
                               onClick={() => {
-                                let updatedHomework = [];
+                                const classCode = classRecord.joinCode || classRecord.id;
                                 updateWorkspace(current => {
                                   const list = current.homework || [];
                                   const dummySub = roster.map(student => ({
@@ -2433,11 +2433,10 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                                     status: 'Pending',
                                     submittedAt: null
                                   }));
-                                  updatedHomework = list.map(h => h.id === hw.id ? { ...h, status: 'Published', submissions: (h.submissions?.length ? h.submissions : dummySub) } : h);
+                                  const updatedHomework = list.map(h => h.id === hw.id ? { ...h, status: 'Published', submissions: (h.submissions?.length ? h.submissions : dummySub) } : h);
+                                  syncClassCollection(classCode, 'homework', updatedHomework.filter(h => h.classId === classRecord.id || h.joinCode === classRecord.joinCode || h.className === classRecord.name));
                                   return { ...current, homework: updatedHomework };
                                 });
-                                const classCode = classRecord.joinCode || classRecord.id;
-                                syncClassCollection(classCode, 'homework', updatedHomework.filter(h => h.classId === classRecord.id || h.joinCode === classRecord.joinCode || h.className === classRecord.name));
                                 onToast('Homework published to students.');
                               }}
                             >
@@ -2448,14 +2447,13 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                           <IconButton
                             label="Delete"
                             onClick={() => {
-                              let updatedHomework = [];
+                              const classCode = classRecord.joinCode || classRecord.id;
                               updateWorkspace(current => {
                                 const list = current.homework || [];
-                                updatedHomework = list.filter(h => h.id !== hw.id);
+                                const updatedHomework = list.filter(h => h.id !== hw.id);
+                                syncClassCollection(classCode, 'homework', updatedHomework.filter(h => h.classId === classRecord.id || h.joinCode === classRecord.joinCode || h.className === classRecord.name));
                                 return { ...current, homework: updatedHomework };
                               });
-                              const classCode = classRecord.joinCode || classRecord.id;
-                              syncClassCollection(classCode, 'homework', updatedHomework.filter(h => h.classId === classRecord.id || h.joinCode === classRecord.joinCode || h.className === classRecord.name));
                               onToast('Homework deleted.');
                             }}
                           >
@@ -2720,18 +2718,17 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                             <Button
                               variant="primary"
                               onClick={() => {
-                                let updatedTests = [];
+                                const classCode = classRecord.joinCode || classRecord.id;
                                 updateWorkspace(current => {
                                   const list = current.tests || [];
                                   const marksList = {};
                                   roster.forEach(st => {
                                     marksList[st.id] = { marks: null, status: 'Pending', comments: '', submittedAnswersUrl: '' };
                                   });
-                                  updatedTests = list.map(t => t.id === exam.id ? { ...t, status: 'Published', studentMarks: marksList } : t);
+                                  const updatedTests = list.map(t => t.id === exam.id ? { ...t, status: 'Published', studentMarks: marksList } : t);
+                                  syncClassCollection(classCode, 'tests', updatedTests.filter(t => t.classId === classRecord.id || t.joinCode === classRecord.joinCode || t.className === classRecord.name));
                                   return { ...current, tests: updatedTests };
                                 });
-                                const classCode = classRecord.joinCode || classRecord.id;
-                                syncClassCollection(classCode, 'tests', updatedTests.filter(t => t.classId === classRecord.id || t.joinCode === classRecord.joinCode || t.className === classRecord.name));
                                 onToast('Exam published to students.');
                               }}
                             >
@@ -2742,14 +2739,13 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                             <Button
                               variant="subtle"
                               onClick={() => {
-                                let updatedTests = [];
+                                const classCode = classRecord.joinCode || classRecord.id;
                                 updateWorkspace(current => {
                                   const list = current.tests || [];
-                                  updatedTests = list.map(t => t.id === exam.id ? { ...t, status: 'Completed' } : t);
+                                  const updatedTests = list.map(t => t.id === exam.id ? { ...t, status: 'Completed' } : t);
+                                  syncClassCollection(classCode, 'tests', updatedTests.filter(t => t.classId === classRecord.id || t.joinCode === classRecord.joinCode || t.className === classRecord.name));
                                   return { ...current, tests: updatedTests };
                                 });
-                                const classCode = classRecord.joinCode || classRecord.id;
-                                syncClassCollection(classCode, 'tests', updatedTests.filter(t => t.classId === classRecord.id || t.joinCode === classRecord.joinCode || t.className === classRecord.name));
                                 onToast('Exam finalized.');
                               }}
                             >
@@ -2759,14 +2755,13 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                           <IconButton
                             label="Delete"
                             onClick={() => {
-                              let updatedTests = [];
+                              const classCode = classRecord.joinCode || classRecord.id;
                               updateWorkspace(current => {
                                 const list = current.tests || [];
-                                updatedTests = list.filter(t => t.id !== exam.id);
+                                const updatedTests = list.filter(t => t.id !== exam.id);
+                                syncClassCollection(classCode, 'tests', updatedTests.filter(t => t.classId === classRecord.id || t.joinCode === classRecord.joinCode || t.className === classRecord.name));
                                 return { ...current, tests: updatedTests };
                               });
-                              const classCode = classRecord.joinCode || classRecord.id;
-                              syncClassCollection(classCode, 'tests', updatedTests.filter(t => t.classId === classRecord.id || t.joinCode === classRecord.joinCode || t.className === classRecord.name));
                               onToast('Assessment deleted.');
                             }}
                           >
@@ -2867,14 +2862,13 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                           <Button
                             variant="primary"
                             onClick={() => {
-                              let updatedQuizzes = [];
+                              const classCode = classRecord.joinCode || classRecord.id;
                               updateWorkspace(current => {
                                 const list = current.quizzes || [];
-                                updatedQuizzes = list.map(q => q.id === quiz.id ? { ...q, status: 'Published' } : q);
+                                const updatedQuizzes = list.map(q => q.id === quiz.id ? { ...q, status: 'Published' } : q);
+                                syncClassCollection(classCode, 'quizzes', updatedQuizzes.filter(q => q.classId === classRecord.id || q.classId === classRecord.joinCode || q.subject === classRecord.subject));
                                 return { ...current, quizzes: updatedQuizzes };
                               });
-                              const classCode = classRecord.joinCode || classRecord.id;
-                              syncClassCollection(classCode, 'quizzes', updatedQuizzes.filter(q => q.classId === classRecord.id || q.classId === classRecord.joinCode || q.subject === classRecord.subject));
                               onToast('Quiz published to assigned students.');
                             }}
                           >
@@ -2885,14 +2879,13 @@ function ClassWorkspacePageV2({ workspace, classId, tab, setTab, onBack, onToast
                         <IconButton
                           label="Delete"
                           onClick={() => {
-                            let updatedQuizzes = [];
+                            const classCode = classRecord.joinCode || classRecord.id;
                             updateWorkspace(current => {
                               const list = current.quizzes || [];
-                              updatedQuizzes = list.filter(q => q.id !== quiz.id);
+                              const updatedQuizzes = list.filter(q => q.id !== quiz.id);
+                              syncClassCollection(classCode, 'quizzes', updatedQuizzes.filter(q => q.classId === classRecord.id || q.classId === classRecord.joinCode || q.subject === classRecord.subject));
                               return { ...current, quizzes: updatedQuizzes };
                             });
-                            const classCode = classRecord.joinCode || classRecord.id;
-                            syncClassCollection(classCode, 'quizzes', updatedQuizzes.filter(q => q.classId === classRecord.id || q.classId === classRecord.joinCode || q.subject === classRecord.subject));
                             onToast('Quiz deleted.');
                           }}
                         >
